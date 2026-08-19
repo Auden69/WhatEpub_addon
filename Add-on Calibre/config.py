@@ -8,7 +8,7 @@ aux mises à jour du plugin).
 from calibre.utils.config import JSONConfig
 from qt.core import QWidget, QVBoxLayout, QFormLayout, QLineEdit, QSpinBox, QLabel, QCheckBox
 
-prefs = JSONConfig("plugins/whatebook")
+prefs = JSONConfig("plugins/whatepub")
 
 prefs.defaults["server_url"] = "https://api.whatepub.com"
 prefs.defaults["api_key"] = ""

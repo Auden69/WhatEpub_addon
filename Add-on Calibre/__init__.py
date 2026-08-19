@@ -9,8 +9,8 @@ plugin avant d'importer le reste.
 from calibre.customize import InterfaceActionBase
 
 
-class WhatebookPlugin(InterfaceActionBase):
-    name = "WhatEbook"
+class WhatEpubPlugin(InterfaceActionBase):
+    name = "WhatEpub"
     description = "Pousse les métadonnées Calibre vers le service bibliographique partagé (WhatEpub)."
     supported_platforms = ["windows", "osx", "linux"]
     author = "Local"
@@ -19,13 +19,13 @@ class WhatebookPlugin(InterfaceActionBase):
 
     # Chemin vers la vraie classe InterfaceAction (chargée à la demande,
     # pas à l'import de ce fichier — convention Calibre standard)
-    actual_plugin = "calibre_plugins.whatebook.ui:WhatebookAction"
+    actual_plugin = "calibre_plugins.whatepub.ui:WhatEpubAction"
 
     def is_customizable(self):
         return True
 
     def config_widget(self):
-        from calibre_plugins.whatebook.config import ConfigWidget
+        from calibre_plugins.whatepub.config import ConfigWidget
         return ConfigWidget()
 
     def save_settings(self, config_widget):

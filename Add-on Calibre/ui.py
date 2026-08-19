@@ -17,8 +17,8 @@ from qt.core import (
 
 from calibre.gui2.actions import InterfaceAction
 
-from calibre_plugins.whatebook.config import prefs
-from calibre_plugins.whatebook import sync_worker
+from calibre_plugins.whatepub.config import prefs
+from calibre_plugins.whatepub import sync_worker
 
 
 class SyncThread(QThread):
@@ -184,9 +184,9 @@ class SpecificIdsDialog(QDialog):
         return ids
 
 
-class WhatebookAction(InterfaceAction):
-    name = "WhatEbook"
-    action_spec = ("WhatEbook", None, "Synchronise avec le service bibliographique partagé", None)
+class WhatEpubAction(InterfaceAction):
+    name = "WhatEpub"
+    action_spec = ("WhatEpub", None, "Synchronise avec le service bibliographique partagé", None)
     action_type = "current"
 
     def genesis(self):
@@ -225,7 +225,7 @@ class WhatebookAction(InterfaceAction):
         if prefs["dev_mode"]:
             self._scan_timer.stop()
             self._poll_timer.stop()
-            self._log("[whatebook] Mode développement actif — scans automatiques désactivés.")
+            self._log("[whatepub] Mode développement actif — scans automatiques désactivés.")
             return
 
         scan_ms = prefs["scan_interval_minutes"] * 60 * 1000
@@ -258,7 +258,7 @@ class WhatebookAction(InterfaceAction):
         self._is_running = False
 
     def _handle_thread_error(self, message):
-        self._log(f"[whatebook] Erreur : {message}")
+        self._log(f"[whatepub] Erreur : {message}")
         self._register_failure()
 
     # ---------- Cycles automatiques (déclenchés par les timers) ----------
@@ -289,7 +289,7 @@ class WhatebookAction(InterfaceAction):
             base = prefs["scan_interval_minutes"]
             backoff_minutes = min(base * (2 ** (self._consecutive_failures - 2)), 120)
             self._restart_scan_timer(backoff_minutes)
-            self._log(f"[whatebook] {self._consecutive_failures} échecs consécutifs — "
+            self._log(f"[whatepub] {self._consecutive_failures} échecs consécutifs — "
                       f"prochain essai dans {backoff_minutes} min.")
 
     # ---------- Déclenchement manuel : vraie synchro ----------
@@ -297,13 +297,13 @@ class WhatebookAction(InterfaceAction):
     def sync_now(self):
         started = self._launch_sync_thread(do_scan=True, do_poll=True)
         if not started:
-            self._log("[whatebook] Une synchro est déjà en cours.")
+            self._log("[whatepub] Une synchro est déjà en cours.")
 
     # ---------- Déclenchement manuel : tests dev ----------
 
     def _launch_sample_thread(self, **kwargs):
         if self._is_running:
-            self._log("[whatebook] Une synchro est déjà en cours.")
+            self._log("[whatepub] Une synchro est déjà en cours.")
             return
         self._is_running = True
         db_api = self.gui.current_db.new_api
@@ -318,7 +318,7 @@ class WhatebookAction(InterfaceAction):
         db_api = self.gui.current_db.new_api
         max_books = len(db_api.all_book_ids())
         if max_books == 0:
-            self._log("[whatebook] Bibliothèque vide.")
+            self._log("[whatepub] Bibliothèque vide.")
             return
 
         dialog = RandomSampleDialog(self.gui, max_books)
@@ -336,13 +336,13 @@ class WhatebookAction(InterfaceAction):
 
         ids = dialog.parsed_ids()
         if not ids:
-            self._log("[whatebook] Aucun ID valide saisi.")
+            self._log("[whatepub] Aucun ID valide saisi.")
             return
 
         self._launch_sample_thread(mode="ids", book_ids=ids)
 
     def _handle_sample_result(self, result):
-        self._log(f"[whatebook] Test terminé : {result['pushed']} poussé(s), {result['failed']} échec(s).")
+        self._log(f"[whatepub] Test terminé : {result['pushed']} poussé(s), {result['failed']} échec(s).")
 
     def show_config(self):
         self.interface_action_base_plugin.do_user_config(self.gui)

@@ -25,14 +25,14 @@ from pathlib import Path
 
 from calibre.utils.config import config_dir
 
-from calibre_plugins.whatebook.config import prefs
-from calibre_plugins.whatebook.fingerprint import fingerprint_epub
+from calibre_plugins.whatepub.config import prefs
+from calibre_plugins.whatepub.fingerprint import fingerprint_epub
 
 
 # ---------- État local de synchro (SQLite, séparé de metadata.db) ----------
 
 def get_state_db_path():
-    return Path(config_dir) / "plugins" / "whatebook_state.db"
+    return Path(config_dir) / "plugins" / "whatepub_state.db"
 
 
 def get_state_conn():
@@ -166,7 +166,7 @@ def get_epub_path(db_api, book_id, log=print):
         path = db_api.format_abspath(book_id, "EPUB")
         return Path(path) if path else None
     except Exception as e:
-        log(f"[whatebook] Échec format_abspath (book_id={book_id}) : {type(e).__name__}: {e}")
+        log(f"[whatepub] Échec format_abspath (book_id={book_id}) : {type(e).__name__}: {e}")
         return None
 
 
@@ -233,14 +233,14 @@ def build_book_payload(db_api, book_id, fields, log=print):
                 for w in fp["windows"]
             ]
         except Exception as e:
-            log(f"[whatebook] Échec fingerprint (book_id={book_id}, path={epub_path}) : {type(e).__name__}: {e}")
+            log(f"[whatepub] Échec fingerprint (book_id={book_id}, path={epub_path}) : {type(e).__name__}: {e}")
             # epub illisible/corrompu — cas normal, ~2.8% mesuré, on
             # continue sans fingerprint plutôt que de bloquer l'envoi
     elif epub_path is not None:
         # format_abspath a renvoyé un chemin mais il n'existe pas sur
         # disque — bibliothèque désynchronisée du système de fichiers.
         # Avant ce correctif, ce cas aussi était totalement silencieux.
-        log(f"[whatebook] Chemin epub introuvable sur disque (book_id={book_id}) : {epub_path}")
+        log(f"[whatepub] Chemin epub introuvable sur disque (book_id={book_id}) : {epub_path}")
 
     return payload
 
@@ -313,7 +313,7 @@ def sync_cover_if_needed(db_api, book_id, cover_hash, log=print):
             return
         upload_cover_to_server(server_url, api_key, cover_hash, cover_data)
     except Exception as e:
-        log(f"[whatebook] Échec envoi cover (book_id={book_id}) : {e}")
+        log(f"[whatepub] Échec envoi cover (book_id={book_id}) : {e}")
 
 
 def post_ingest(server_url, api_key, ingest_id, books_payload, timeout=30):
@@ -349,17 +349,17 @@ def run_scan_and_push(db_api, log=print):
     batch_size = prefs["batch_size"]
 
     if not api_key:
-        log("[whatebook] Aucune clé API configurée — synchro annulée.")
+        log("[whatepub] Aucune clé API configurée — synchro annulée.")
         return {"pushed": 0, "failed": 0, "skipped": True}
 
     state_conn = get_state_conn()
 
     to_push = get_books_to_push(db_api, state_conn)
     if not to_push:
-        log("[whatebook] Rien à synchroniser.")
+        log("[whatepub] Rien à synchroniser.")
         return {"pushed": 0, "failed": 0, "skipped": False}
 
-    log(f"[whatebook] {len(to_push)} livre(s) à pousser.")
+    log(f"[whatepub] {len(to_push)} livre(s) à pousser.")
 
     pushed, failed = 0, 0
 
@@ -374,7 +374,7 @@ def run_scan_and_push(db_api, log=print):
         try:
             result = post_ingest(server_url, api_key, ingest_id, books_payload)
         except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as e:
-            log(f"[whatebook] Échec envoi batch ({len(batch)} livres) : {e} — retry au prochain cycle.")
+            log(f"[whatepub] Échec envoi batch ({len(batch)} livres) : {e} — retry au prochain cycle.")
             state_conn.execute(
                 "INSERT OR REPLACE INTO ingest_retry_queue (ingest_id, payload_json) VALUES (?, ?)",
                 (ingest_id, json.dumps(books_payload)),
@@ -404,7 +404,7 @@ def run_scan_and_push(db_api, log=print):
         state_conn.commit()
 
     state_conn.close()
-    log(f"[whatebook] Synchro terminée : {pushed} poussé(s), {failed} échec(s).")
+    log(f"[whatepub] Synchro terminée : {pushed} poussé(s), {failed} échec(s).")
     return {"pushed": pushed, "failed": failed, "skipped": False}
 
 
@@ -437,7 +437,7 @@ def run_poll_results(log=print):
         try:
             book = get_book_status(server_url, api_key, row["server_book_id"])
         except Exception as e:
-            log(f"[whatebook] Échec poll livre {row['calibre_book_id']} : {e}")
+            log(f"[whatepub] Échec poll livre {row['calibre_book_id']} : {e}")
             continue
 
         if book.get("work_id") is not None:
@@ -451,14 +451,14 @@ def run_poll_results(log=print):
                 "UPDATE addon_sync_state SET last_known_status = 'awaiting_confirmation' WHERE calibre_book_id = ?",
                 (row["calibre_book_id"],),
             )
-            log(f"[whatebook] Suggestion en attente pour le livre {row['calibre_book_id']} "
+            log(f"[whatepub] Suggestion en attente pour le livre {row['calibre_book_id']} "
                 f"(confirmation manuelle nécessaire — UI à venir)")
 
     state_conn.commit()
     state_conn.close()
 
     if resolved:
-        log(f"[whatebook] {resolved} livre(s) résolu(s) depuis le dernier poll.")
+        log(f"[whatepub] {resolved} livre(s) résolu(s) depuis le dernier poll.")
 
     return {"checked": len(pending_rows), "resolved": resolved}
 
@@ -489,21 +489,21 @@ def push_random_sample(db_api, n, log=print, random_order=True):
     batch_size = prefs["batch_size"]
 
     if not api_key:
-        log("[whatebook] Aucune clé API configurée — envoi annulé.")
+        log("[whatepub] Aucune clé API configurée — envoi annulé.")
         return {"pushed": 0, "failed": 0}
 
     all_ids = list(db_api.all_book_ids())
     if not all_ids:
-        log("[whatebook] Bibliothèque vide — rien à échantillonner.")
+        log("[whatepub] Bibliothèque vide — rien à échantillonner.")
         return {"pushed": 0, "failed": 0}
 
     n = min(n, len(all_ids))
     if random_order:
         sample_ids = random.sample(all_ids, n)
-        log(f"[whatebook] Test : {n} livre(s) sélectionné(s) aléatoirement.")
+        log(f"[whatepub] Test : {n} livre(s) sélectionné(s) aléatoirement.")
     else:
         sample_ids = sorted(all_ids)[:n]
-        log(f"[whatebook] Test : {n} premier(s) livre(s) (ordre déterministe).")
+        log(f"[whatepub] Test : {n} premier(s) livre(s) (ordre déterministe).")
 
     return _push_book_ids(db_api, sample_ids, batch_size, server_url, api_key, log)
 
@@ -524,7 +524,7 @@ def push_specific_books(db_api, book_ids, log=print):
     batch_size = prefs["batch_size"]
 
     if not api_key:
-        log("[whatebook] Aucune clé API configurée — envoi annulé.")
+        log("[whatepub] Aucune clé API configurée — envoi annulé.")
         return {"pushed": 0, "failed": 0}
 
     all_ids = set(db_api.all_book_ids())
@@ -532,13 +532,13 @@ def push_specific_books(db_api, book_ids, log=print):
     missing_ids = [bid for bid in book_ids if bid not in all_ids]
 
     if missing_ids:
-        log(f"[whatebook] ID(s) introuvable(s) dans la bibliothèque, ignoré(s) : {missing_ids}")
+        log(f"[whatepub] ID(s) introuvable(s) dans la bibliothèque, ignoré(s) : {missing_ids}")
 
     if not valid_ids:
-        log("[whatebook] Aucun ID valide à envoyer.")
+        log("[whatepub] Aucun ID valide à envoyer.")
         return {"pushed": 0, "failed": 0}
 
-    log(f"[whatebook] Test : renvoi forcé de {len(valid_ids)} livre(s) précis : {valid_ids}")
+    log(f"[whatepub] Test : renvoi forcé de {len(valid_ids)} livre(s) précis : {valid_ids}")
     return _push_book_ids(db_api, valid_ids, batch_size, server_url, api_key, log)
 
 
@@ -558,9 +558,9 @@ def _push_book_ids(db_api, book_ids, batch_size, server_url, api_key, log):
             result = post_ingest(server_url, api_key, ingest_id, books_payload)
             pushed += len(result.get("book_ids", []))
         except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as e:
-            log(f"[whatebook] Échec envoi ({len(batch_ids)} livres) : {e}")
+            log(f"[whatepub] Échec envoi ({len(batch_ids)} livres) : {e}")
             failed += len(batch_ids)
             continue
 
-    log(f"[whatebook] Terminé : {pushed} poussé(s), {failed} échec(s).")
+    log(f"[whatepub] Terminé : {pushed} poussé(s), {failed} échec(s).")
     return {"pushed": pushed, "failed": failed}
