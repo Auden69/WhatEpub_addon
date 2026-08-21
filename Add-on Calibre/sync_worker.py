@@ -13,7 +13,6 @@ Calibre embarqué).
 
 import hashlib
 import json
-import random
 import re
 import sqlite3
 import time
@@ -25,7 +24,7 @@ from pathlib import Path
 
 from calibre.utils.config import config_dir
 
-from calibre_plugins.whatepub.config import prefs
+from calibre_plugins.whatepub.config import prefs, SERVER_URL
 from calibre_plugins.whatepub.fingerprint import fingerprint_epub
 
 
@@ -303,15 +302,14 @@ def sync_cover_if_needed(db_api, book_id, cover_hash, log=print):
     best-effort : un échec ici ne doit jamais faire échouer la synchro
     du reste du livre (les métadonnées partent séparément via /ingest).
     """
-    server_url = prefs["server_url"]
     api_key = prefs["api_key"]
     try:
-        if cover_exists_on_server(server_url, api_key, cover_hash):
+        if cover_exists_on_server(SERVER_URL, api_key, cover_hash):
             return
         cover_data = db_api.cover(book_id)
         if not cover_data:
             return
-        upload_cover_to_server(server_url, api_key, cover_hash, cover_data)
+        upload_cover_to_server(SERVER_URL, api_key, cover_hash, cover_data)
     except Exception as e:
         log(f"[whatepub] Échec envoi cover (book_id={book_id}) : {e}")
 
@@ -344,7 +342,6 @@ def run_scan_and_push(db_api, log=print):
     Un cycle complet : diff -> batches -> envoi idempotent. Retourne
     un résumé (nb poussés, nb échecs) pour affichage dans l'UI.
     """
-    server_url = prefs["server_url"]
     api_key = prefs["api_key"]
     batch_size = prefs["batch_size"]
 
@@ -372,7 +369,7 @@ def run_scan_and_push(db_api, log=print):
         ingest_id = str(uuid.uuid4())
 
         try:
-            result = post_ingest(server_url, api_key, ingest_id, books_payload)
+            result = post_ingest(SERVER_URL, api_key, ingest_id, books_payload)
         except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as e:
             log(f"[whatepub] Échec envoi batch ({len(batch)} livres) : {e} — retry au prochain cycle.")
             state_conn.execute(
@@ -417,7 +414,6 @@ def run_poll_results(log=print):
     (l'affichage/confirmation UI est un chantier séparé, pas encore
     construit dans cette version : rôle CLIENT de l'addon).
     """
-    server_url = prefs["server_url"]
     api_key = prefs["api_key"]
 
     if not api_key:
@@ -435,7 +431,7 @@ def run_poll_results(log=print):
     resolved = 0
     for row in pending_rows:
         try:
-            book = get_book_status(server_url, api_key, row["server_book_id"])
+            book = get_book_status(SERVER_URL, api_key, row["server_book_id"])
         except Exception as e:
             log(f"[whatepub] Échec poll livre {row['calibre_book_id']} : {e}")
             continue
@@ -461,106 +457,3 @@ def run_poll_results(log=print):
         log(f"[whatepub] {resolved} livre(s) résolu(s) depuis le dernier poll.")
 
     return {"checked": len(pending_rows), "resolved": resolved}
-
-
-# ---------- DEV/TEST : envoi d'un échantillon aléatoire ----------
-
-def push_random_sample(db_api, n, log=print, random_order=True):
-    """
-    Développement uniquement — pousse un échantillon de n livres, en
-    dehors du flux normal :
-      - ignore le diff par content_hash (force l'envoi même si le
-        livre a déjà été poussé tel quel) ;
-      - n'écrit RIEN dans addon_sync_state (pas de pollution de l'état
-        de synchro réel — un test n'est pas une vraie synchronisation,
-        le prochain scan normal traitera ces livres comme d'habitude,
-        sans se soucier de ce test).
-
-    random_order=True  : n livres tirés au hasard dans toute la bibliothèque.
-    random_order=False : les n premiers livres (triés par calibre_book_id),
-                          déterministe — pratique pour reproduire exactement
-                          le même échantillon d'un test à l'autre.
-
-    Sert à valider le pipeline serveur/worker sur un petit lot,
-    sans attendre un scan complet ni committer tout un état réel.
-    """
-    server_url = prefs["server_url"]
-    api_key = prefs["api_key"]
-    batch_size = prefs["batch_size"]
-
-    if not api_key:
-        log("[whatepub] Aucune clé API configurée — envoi annulé.")
-        return {"pushed": 0, "failed": 0}
-
-    all_ids = list(db_api.all_book_ids())
-    if not all_ids:
-        log("[whatepub] Bibliothèque vide — rien à échantillonner.")
-        return {"pushed": 0, "failed": 0}
-
-    n = min(n, len(all_ids))
-    if random_order:
-        sample_ids = random.sample(all_ids, n)
-        log(f"[whatepub] Test : {n} livre(s) sélectionné(s) aléatoirement.")
-    else:
-        sample_ids = sorted(all_ids)[:n]
-        log(f"[whatepub] Test : {n} premier(s) livre(s) (ordre déterministe).")
-
-    return _push_book_ids(db_api, sample_ids, batch_size, server_url, api_key, log)
-
-
-def push_specific_books(db_api, book_ids, log=print):
-    """
-    Développement uniquement — repousse un ou plusieurs livres précis,
-    identifiés par leur calibre_book_id. Utile pour retester un livre
-    donné après une modification côté serveur (resolver.py, schéma...),
-    sans avoir à relancer tout un scan ni à modifier le livre dans
-    Calibre pour forcer le diff à le détecter.
-
-    Mêmes garanties que push_random_sample : force l'envoi (ignore le
-    diff), n'écrit rien dans addon_sync_state.
-    """
-    server_url = prefs["server_url"]
-    api_key = prefs["api_key"]
-    batch_size = prefs["batch_size"]
-
-    if not api_key:
-        log("[whatepub] Aucune clé API configurée — envoi annulé.")
-        return {"pushed": 0, "failed": 0}
-
-    all_ids = set(db_api.all_book_ids())
-    valid_ids = [bid for bid in book_ids if bid in all_ids]
-    missing_ids = [bid for bid in book_ids if bid not in all_ids]
-
-    if missing_ids:
-        log(f"[whatepub] ID(s) introuvable(s) dans la bibliothèque, ignoré(s) : {missing_ids}")
-
-    if not valid_ids:
-        log("[whatepub] Aucun ID valide à envoyer.")
-        return {"pushed": 0, "failed": 0}
-
-    log(f"[whatepub] Test : renvoi forcé de {len(valid_ids)} livre(s) précis : {valid_ids}")
-    return _push_book_ids(db_api, valid_ids, batch_size, server_url, api_key, log)
-
-
-def _push_book_ids(db_api, book_ids, batch_size, server_url, api_key, log):
-    """Factorisation commune à push_random_sample et push_specific_books."""
-    pushed, failed = 0, 0
-
-    for i in range(0, len(book_ids), batch_size):
-        batch_ids = book_ids[i:i + batch_size]
-        books_payload = []
-        for book_id in batch_ids:
-            fields = extract_book_fields(db_api, book_id)
-            books_payload.append(build_book_payload(db_api, book_id, fields, log=log))
-
-        ingest_id = f"test-manual-{uuid.uuid4()}"
-        try:
-            result = post_ingest(server_url, api_key, ingest_id, books_payload)
-            pushed += len(result.get("book_ids", []))
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as e:
-            log(f"[whatepub] Échec envoi ({len(batch_ids)} livres) : {e}")
-            failed += len(batch_ids)
-            continue
-
-    log(f"[whatepub] Terminé : {pushed} poussé(s), {failed} échec(s).")
-    return {"pushed": pushed, "failed": failed}

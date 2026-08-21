@@ -6,16 +6,18 @@ aux mises à jour du plugin).
 """
 
 from calibre.utils.config import JSONConfig
-from qt.core import QWidget, QVBoxLayout, QFormLayout, QLineEdit, QSpinBox, QLabel, QCheckBox
+from qt.core import QWidget, QVBoxLayout, QFormLayout, QLineEdit, QSpinBox, QLabel
 
 prefs = JSONConfig("plugins/whatepub")
 
-prefs.defaults["server_url"] = "https://api.whatepub.com"
+# URL du serveur en dur (pas un champ de config) : ce plugin ne parle
+# qu'à l'instance officielle WhatEpub, jamais à un serveur arbitraire.
+SERVER_URL = "https://api.whatepub.com"
+
 prefs.defaults["api_key"] = ""
 prefs.defaults["scan_interval_minutes"] = 20
 prefs.defaults["poll_interval_minutes"] = 3
 prefs.defaults["batch_size"] = 50
-prefs.defaults["dev_mode"] = True  # par défaut ON — pas de scan auto tant que non désactivé explicitement
 
 
 class ConfigWidget(QWidget):
@@ -24,9 +26,6 @@ class ConfigWidget(QWidget):
         layout = QVBoxLayout(self)
         form = QFormLayout()
         layout.addLayout(form)
-
-        self.server_url_edit = QLineEdit(prefs["server_url"], self)
-        form.addRow("URL du serveur :", self.server_url_edit)
 
         self.api_key_edit = QLineEdit(prefs["api_key"], self)
         self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
@@ -47,22 +46,13 @@ class ConfigWidget(QWidget):
         self.batch_size_spin.setValue(prefs["batch_size"])
         form.addRow("Taille de batch :", self.batch_size_spin)
 
-        self.dev_mode_check = QCheckBox(
-            "Mode développement (désactive les scans/polls automatiques — "
-            "envoi manuel uniquement, via le menu)", self
-        )
-        self.dev_mode_check.setChecked(prefs["dev_mode"])
-        layout.addWidget(self.dev_mode_check)
-
         layout.addWidget(QLabel(
             "La clé API est fournie par l'administrateur du serveur "
             "(générée lors de la création de l'installation)."
         ))
 
     def save_settings(self):
-        prefs["server_url"] = self.server_url_edit.text().strip()
         prefs["api_key"] = self.api_key_edit.text().strip()
         prefs["scan_interval_minutes"] = self.scan_interval_spin.value()
         prefs["poll_interval_minutes"] = self.poll_interval_spin.value()
         prefs["batch_size"] = self.batch_size_spin.value()
-        prefs["dev_mode"] = self.dev_mode_check.isChecked()
