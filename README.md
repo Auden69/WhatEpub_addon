@@ -14,6 +14,10 @@ WhatEpub — pas le seul moyen d'y accéder.
 
 Nécessite Calibre 5.0 ou supérieur.
 
+L'interface du plugin suit la langue configurée dans Calibre
+(**Préférences → Interface → Look & feel**) : français par défaut,
+anglais si Calibre est en anglais (`translations/en.po`/`.mo`).
+
 ## Configuration
 
 1. Crée un compte sur [whatepub.com](https://whatepub.com) et génère une clé API depuis "Mes clés".

@@ -14,6 +14,8 @@ from calibre.gui2.actions import InterfaceAction
 from calibre_plugins.whatepub.config import prefs
 from calibre_plugins.whatepub import sync_worker
 
+load_translations()
+
 
 class SyncThread(QThread):
     """
@@ -47,15 +49,15 @@ class SyncThread(QThread):
 
 class WhatEpubAction(InterfaceAction):
     name = "WhatEpub"
-    action_spec = ("WhatEpub", None, "Synchronise avec le service bibliographique partagé", None)
+    action_spec = ("WhatEpub", None, _("Synchronise avec le service bibliographique partagé"), None)
     action_type = "current"
 
     def genesis(self):
         self.qaction.triggered.connect(self.sync_now)
         menu = QMenu(self.gui)
-        menu.addAction("Synchroniser maintenant", self.sync_now)
+        menu.addAction(_("Synchroniser maintenant"), self.sync_now)
         menu.addSeparator()
-        menu.addAction("Paramètres...", self.show_config)
+        menu.addAction(_("Paramètres..."), self.show_config)
         self.qaction.setMenu(menu)
 
         self._scan_timer = QTimer(self.gui)
@@ -101,7 +103,7 @@ class WhatEpubAction(InterfaceAction):
         self._is_running = False
 
     def _handle_thread_error(self, message):
-        self._log(f"[whatepub] Erreur : {message}")
+        self._log(_("[whatepub] Erreur : {message}").format(message=message))
         self._register_failure()
 
     # ---------- Cycles automatiques (déclenchés par les timers) ----------
@@ -132,15 +134,16 @@ class WhatEpubAction(InterfaceAction):
             base = prefs["scan_interval_minutes"]
             backoff_minutes = min(base * (2 ** (self._consecutive_failures - 2)), 120)
             self._restart_scan_timer(backoff_minutes)
-            self._log(f"[whatepub] {self._consecutive_failures} échecs consécutifs — "
-                      f"prochain essai dans {backoff_minutes} min.")
+            self._log(_("[whatepub] {n} échecs consécutifs — prochain essai dans {minutes} min.").format(
+                n=self._consecutive_failures, minutes=backoff_minutes
+            ))
 
     # ---------- Déclenchement manuel : vraie synchro ----------
 
     def sync_now(self):
         started = self._launch_sync_thread(do_scan=True, do_poll=True)
         if not started:
-            self._log("[whatepub] Une synchro est déjà en cours.")
+            self._log(_("[whatepub] Une synchro est déjà en cours."))
 
     def show_config(self):
         self.interface_action_base_plugin.do_user_config(self.gui)

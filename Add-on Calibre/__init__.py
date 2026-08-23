@@ -8,13 +8,15 @@ plugin avant d'importer le reste.
 
 from calibre.customize import InterfaceActionBase
 
+load_translations()
+
 
 class WhatEpubPlugin(InterfaceActionBase):
     name = "WhatEpub"
-    description = "Pousse les métadonnées Calibre vers le service bibliographique partagé (WhatEpub)."
+    description = _("Pousse les métadonnées Calibre vers le service bibliographique partagé (WhatEpub).")
     supported_platforms = ["windows", "osx", "linux"]
     author = "Local"
-    version = (0, 2, 0)
+    version = (0, 3, 0)
     minimum_calibre_version = (5, 0, 0)
 
     # Chemin vers la vraie classe InterfaceAction (chargée à la demande,

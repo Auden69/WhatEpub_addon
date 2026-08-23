@@ -1,0 +1,43 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: WhatEpub addon\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: en\n"
+
+msgid "Pousse les métadonnées Calibre vers le service bibliographique partagé (WhatEpub)."
+msgstr "Push Calibre metadata to the shared bibliographic service (WhatEpub)."
+
+msgid "Synchronise avec le service bibliographique partagé"
+msgstr "Sync with the shared bibliographic service"
+
+msgid "Synchroniser maintenant"
+msgstr "Sync now"
+
+msgid "Paramètres..."
+msgstr "Settings..."
+
+msgid "[whatepub] Erreur : {message}"
+msgstr "[whatepub] Error: {message}"
+
+msgid "[whatepub] {n} échecs consécutifs — prochain essai dans {minutes} min."
+msgstr "[whatepub] {n} consecutive failures — next attempt in {minutes} min."
+
+msgid "[whatepub] Une synchro est déjà en cours."
+msgstr "[whatepub] A sync is already in progress."
+
+msgid "Clé API :"
+msgstr "API key:"
+
+msgid "Scan/push (minutes) :"
+msgstr "Scan/push (minutes):"
+
+msgid "Poll résultats (minutes) :"
+msgstr "Poll results (minutes):"
+
+msgid "Taille de batch :"
+msgstr "Batch size:"
+
+msgid "La clé API est fournie par l'administrateur du serveur (générée lors de la création de l'installation)."
+msgstr "The API key is provided by the server administrator (generated when the installation is created)."
