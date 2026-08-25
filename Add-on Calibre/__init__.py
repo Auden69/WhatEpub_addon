@@ -16,7 +16,7 @@ class WhatEpubPlugin(InterfaceActionBase):
     description = _("Pousse les métadonnées Calibre vers le service bibliographique partagé (WhatEpub).")
     supported_platforms = ["windows", "osx", "linux"]
     author = "Local"
-    version = (0, 4, 0)
+    version = (0, 5, 0)
     minimum_calibre_version = (5, 0, 0)
 
     # Chemin vers la vraie classe InterfaceAction (chargée à la demande,
