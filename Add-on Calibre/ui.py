@@ -57,6 +57,8 @@ class WhatEpubAction(InterfaceAction):
         self.qaction.triggered.connect(self.sync_now)
         menu = QMenu(self.gui)
         menu.addAction(_("Synchroniser maintenant"), self.sync_now)
+        menu.addSeparator()
+        menu.addAction(_("Envoyer le livre sélectionné"), self.push_selected_book)
         menu.addAction(_("Vérifier le livre sélectionné"), self.check_selected_book)
         menu.addSeparator()
         menu.addAction(_("Paramètres..."), self.show_config)
@@ -151,26 +153,33 @@ class WhatEpubAction(InterfaceAction):
         self.interface_action_base_plugin.do_user_config(self.gui)
         self._start_timers()  # relit les nouveaux intervalles si modifiés
 
+    def _get_single_selected_book_id(self):
+        """Valide qu'exactement un livre est sélectionné, affiche une
+        erreur sinon. Retourne le calibre_book_id, ou None (erreur déjà
+        affichée, l'appelant doit juste s'arrêter)."""
+        rows = self.gui.library_view.selectionModel().selectedRows()
+        if not rows:
+            error_dialog(self.gui, "WhatEpub", _("Sélectionne d'abord un livre dans la bibliothèque."), show=True)
+            return None
+        if len(rows) > 1:
+            error_dialog(self.gui, "WhatEpub", _("Sélectionne un seul livre à la fois."), show=True)
+            return None
+        if not prefs["api_key"]:
+            error_dialog(self.gui, "WhatEpub", _("Configure d'abord ta clé API (Paramètres...)."), show=True)
+            return None
+        return self.gui.library_view.model().id(rows[0])
+
     def check_selected_book(self):
         """Lookup en lecture seule par signature (POST /lookup) pour le
         livre sélectionné dans la bibliothèque — affiche juste ce que
         WhatEpub a en base. Ne modifie JAMAIS les métadonnées Calibre,
         ni aucune donnée côté serveur : purement informatif, décision
         actée de ne rien appliquer automatiquement pour l'instant."""
-        rows = self.gui.library_view.selectionModel().selectedRows()
-        if not rows:
-            error_dialog(self.gui, "WhatEpub", _("Sélectionne d'abord un livre dans la bibliothèque."), show=True)
-            return
-        if len(rows) > 1:
-            error_dialog(self.gui, "WhatEpub", _("Sélectionne un seul livre à la fois."), show=True)
-            return
-        if not prefs["api_key"]:
-            error_dialog(self.gui, "WhatEpub", _("Configure d'abord ta clé API (Paramètres...)."), show=True)
+        book_id = self._get_single_selected_book_id()
+        if book_id is None:
             return
 
         db_api = self.gui.current_db.new_api
-        book_id = self.gui.library_view.model().id(rows[0])
-
         epub_path = sync_worker.get_epub_path(db_api, book_id, log=self._log)
         if not epub_path or not epub_path.exists():
             error_dialog(self.gui, "WhatEpub", _("Pas de fichier epub pour ce livre."), show=True)
@@ -203,13 +212,53 @@ class WhatEpubAction(InterfaceAction):
             lines.append(_("Série : {series} (tome {index})").format(
                 series=work["series_name"], index=work.get("series_index") or "?"
             ))
+        if work.get("publication_year"):
+            lines.append(_("Année de publication : {year}").format(year=work["publication_year"]))
         if work.get("language"):
             lines.append(_("Langue : {lang}").format(lang=work["language"]))
+        if work.get("external_ids"):
+            ids_display = ", ".join(f"{source}: {value}" for source, value in work["external_ids"].items())
+            lines.append(_("Identifiants externes : {ids}").format(ids=ids_display))
+        lines.append(_("Couverture disponible : {cover}").format(
+            cover=_("oui") if work.get("cover_hash") else _("non")
+        ))
+        if work.get("summary"):
+            summary = work["summary"]
+            if len(summary) > 400:
+                summary = summary[:400].rstrip() + "…"
+            lines.append(_("Résumé : {summary}").format(summary=summary))
         lines.append(_("Correspondance : {method} (confiance {confidence})").format(
             method=result["match_method"], confidence=result["confidence"]
         ))
 
         info_dialog(self.gui, "WhatEpub", "\n".join(lines), show=True)
+
+    def push_selected_book(self):
+        """Envoie le livre sélectionné vers WhatEpub (POST /ingest),
+        indépendamment du cycle scan/push automatique — crée sa fiche
+        côté serveur si elle n'existe pas encore (résolution ensuite
+        asynchrone, comme pour un push normal). Ne modifie aucune
+        métadonnée Calibre : uniquement un envoi vers le serveur."""
+        book_id = self._get_single_selected_book_id()
+        if book_id is None:
+            return
+
+        db_api = self.gui.current_db.new_api
+        try:
+            sync_worker.push_single_book(db_api, book_id, prefs["api_key"], log=self._log)
+        except Exception as e:
+            error_dialog(
+                self.gui, "WhatEpub",
+                _("Échec de l'envoi : {error}").format(error=str(e)),
+                show=True,
+            )
+            return
+
+        info_dialog(
+            self.gui, "WhatEpub",
+            _("Livre envoyé — la résolution se fait en arrière-plan côté serveur."),
+            show=True,
+        )
 
     # ---------- Log ----------
 

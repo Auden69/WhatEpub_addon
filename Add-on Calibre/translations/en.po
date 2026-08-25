@@ -77,3 +77,30 @@ msgstr "Language: {lang}"
 
 msgid "Correspondance : {method} (confiance {confidence})"
 msgstr "Match: {method} (confidence {confidence})"
+
+msgid "Envoyer le livre sélectionné"
+msgstr "Send selected book"
+
+msgid "Année de publication : {year}"
+msgstr "Publication year: {year}"
+
+msgid "Identifiants externes : {ids}"
+msgstr "External identifiers: {ids}"
+
+msgid "Couverture disponible : {cover}"
+msgstr "Cover available: {cover}"
+
+msgid "oui"
+msgstr "yes"
+
+msgid "non"
+msgstr "no"
+
+msgid "Résumé : {summary}"
+msgstr "Summary: {summary}"
+
+msgid "Échec de l'envoi : {error}"
+msgstr "Send failed: {error}"
+
+msgid "Livre envoyé — la résolution se fait en arrière-plan côté serveur."
+msgstr "Book sent — resolution happens in the background on the server."

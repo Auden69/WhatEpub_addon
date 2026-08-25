@@ -368,6 +368,46 @@ def lookup_book_by_signature(epub_path, api_key, timeout=15):
     return lookup_by_fingerprint(SERVER_URL, api_key, fp["exact_hash"], fp["total_words"], windows, timeout=timeout)
 
 
+def push_single_book(db_api, book_id, api_key, log=print):
+    """Envoie UN livre vers POST /ingest, à la demande (menu "Envoyer le
+    livre sélectionné") — même logique que run_scan_and_push mais pour
+    un seul livre, hors cycle automatique. Crée la fiche work côté
+    serveur si elle n'existe pas encore (résolution asynchrone ensuite,
+    comme pour un push normal). Met à jour addon_sync_state pour que ce
+    livre ne soit pas repoussé en double au prochain scan automatique.
+    Retourne le server_book_id (utile pour un futur suivi de statut)."""
+    fields = extract_book_fields(db_api, book_id)
+    content_hash = compute_content_hash(fields)
+    payload = build_book_payload(db_api, book_id, fields, log=log)
+    ingest_id = str(uuid.uuid4())
+
+    result = post_ingest(SERVER_URL, api_key, ingest_id, [payload])
+    server_book_ids = result.get("book_ids", [])
+    server_book_id = server_book_ids[0] if server_book_ids else None
+
+    state_conn = get_state_conn()
+    now = time.strftime("%Y-%m-%dT%H:%M:%S")
+    state_conn.execute(
+        """
+        INSERT INTO addon_sync_state
+            (calibre_book_id, content_hash, last_ingest_id, last_pushed_at,
+             last_known_status, server_book_id)
+        VALUES (?, ?, ?, ?, 'accepted', ?)
+        ON CONFLICT(calibre_book_id) DO UPDATE SET
+            content_hash = excluded.content_hash,
+            last_ingest_id = excluded.last_ingest_id,
+            last_pushed_at = excluded.last_pushed_at,
+            last_known_status = 'accepted',
+            server_book_id = excluded.server_book_id
+        """,
+        (book_id, content_hash, ingest_id, now, server_book_id),
+    )
+    state_conn.commit()
+    state_conn.close()
+
+    return server_book_id
+
+
 # ---------- Cycle complet : scan + push ----------
 
 def run_scan_and_push(db_api, log=print):
