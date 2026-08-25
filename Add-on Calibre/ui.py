@@ -9,6 +9,7 @@ serveur ne répond pas.
 
 from qt.core import QTimer, QMenu, QThread, pyqtSignal
 
+from calibre.gui2 import error_dialog, info_dialog
 from calibre.gui2.actions import InterfaceAction
 
 from calibre_plugins.whatepub.config import prefs
@@ -56,6 +57,7 @@ class WhatEpubAction(InterfaceAction):
         self.qaction.triggered.connect(self.sync_now)
         menu = QMenu(self.gui)
         menu.addAction(_("Synchroniser maintenant"), self.sync_now)
+        menu.addAction(_("Vérifier le livre sélectionné"), self.check_selected_book)
         menu.addSeparator()
         menu.addAction(_("Paramètres..."), self.show_config)
         self.qaction.setMenu(menu)
@@ -148,6 +150,66 @@ class WhatEpubAction(InterfaceAction):
     def show_config(self):
         self.interface_action_base_plugin.do_user_config(self.gui)
         self._start_timers()  # relit les nouveaux intervalles si modifiés
+
+    def check_selected_book(self):
+        """Lookup en lecture seule par signature (POST /lookup) pour le
+        livre sélectionné dans la bibliothèque — affiche juste ce que
+        WhatEpub a en base. Ne modifie JAMAIS les métadonnées Calibre,
+        ni aucune donnée côté serveur : purement informatif, décision
+        actée de ne rien appliquer automatiquement pour l'instant."""
+        rows = self.gui.library_view.selectionModel().selectedRows()
+        if not rows:
+            error_dialog(self.gui, "WhatEpub", _("Sélectionne d'abord un livre dans la bibliothèque."), show=True)
+            return
+        if len(rows) > 1:
+            error_dialog(self.gui, "WhatEpub", _("Sélectionne un seul livre à la fois."), show=True)
+            return
+        if not prefs["api_key"]:
+            error_dialog(self.gui, "WhatEpub", _("Configure d'abord ta clé API (Paramètres...)."), show=True)
+            return
+
+        db_api = self.gui.current_db.new_api
+        book_id = self.gui.library_view.model().id(rows[0])
+
+        epub_path = sync_worker.get_epub_path(db_api, book_id, log=self._log)
+        if not epub_path or not epub_path.exists():
+            error_dialog(self.gui, "WhatEpub", _("Pas de fichier epub pour ce livre."), show=True)
+            return
+
+        try:
+            result = sync_worker.lookup_book_by_signature(epub_path, prefs["api_key"])
+        except Exception as e:
+            error_dialog(
+                self.gui, "WhatEpub",
+                _("Échec de la vérification : {error}").format(error=str(e)),
+                show=True,
+            )
+            return
+
+        if not result.get("matched"):
+            info_dialog(
+                self.gui, "WhatEpub",
+                _("Aucune correspondance trouvée dans le catalogue WhatEpub pour ce livre."),
+                show=True,
+            )
+            return
+
+        work = result["work"]
+        lines = [
+            _("Titre : {title}").format(title=work["title"]),
+            _("Auteur(s) : {authors}").format(authors=", ".join(work["authors"]) or "—"),
+        ]
+        if work.get("series_name"):
+            lines.append(_("Série : {series} (tome {index})").format(
+                series=work["series_name"], index=work.get("series_index") or "?"
+            ))
+        if work.get("language"):
+            lines.append(_("Langue : {lang}").format(lang=work["language"]))
+        lines.append(_("Correspondance : {method} (confiance {confidence})").format(
+            method=result["match_method"], confidence=result["confidence"]
+        ))
+
+        info_dialog(self.gui, "WhatEpub", "\n".join(lines), show=True)
 
     # ---------- Log ----------
 

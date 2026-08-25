@@ -41,3 +41,39 @@ msgstr "Batch size:"
 
 msgid "La clé API est fournie par l'administrateur du serveur (générée lors de la création de l'installation)."
 msgstr "The API key is provided by the server administrator (generated when the installation is created)."
+
+msgid "Vérifier le livre sélectionné"
+msgstr "Check selected book"
+
+msgid "Sélectionne d'abord un livre dans la bibliothèque."
+msgstr "Select a book in the library first."
+
+msgid "Sélectionne un seul livre à la fois."
+msgstr "Select only one book at a time."
+
+msgid "Configure d'abord ta clé API (Paramètres...)."
+msgstr "Configure your API key first (Settings...)."
+
+msgid "Pas de fichier epub pour ce livre."
+msgstr "No epub file for this book."
+
+msgid "Échec de la vérification : {error}"
+msgstr "Check failed: {error}"
+
+msgid "Aucune correspondance trouvée dans le catalogue WhatEpub pour ce livre."
+msgstr "No match found in the WhatEpub catalog for this book."
+
+msgid "Titre : {title}"
+msgstr "Title: {title}"
+
+msgid "Auteur(s) : {authors}"
+msgstr "Author(s): {authors}"
+
+msgid "Série : {series} (tome {index})"
+msgstr "Series: {series} (book {index})"
+
+msgid "Langue : {lang}"
+msgstr "Language: {lang}"
+
+msgid "Correspondance : {method} (confiance {confidence})"
+msgstr "Match: {method} (confidence {confidence})"

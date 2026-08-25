@@ -335,6 +335,39 @@ def get_book_status(server_url, api_key, server_book_id, timeout=15):
         return json.loads(resp.read())
 
 
+def lookup_by_fingerprint(server_url, api_key, exact_hash, word_count, windows, timeout=15):
+    """POST /lookup — envoie UNIQUEMENT la signature (jamais titre/auteur/
+    isbn), reçoit en retour les infos de l'œuvre correspondante si le
+    serveur en trouve une. Lecture seule côté serveur (rien n'est créé
+    ni modifié en base) ; ne modifie jamais les métadonnées Calibre non
+    plus, ça reste une décision séparée, pas prise ici."""
+    body = json.dumps({
+        "exact_hash": exact_hash,
+        "word_count": word_count,
+        "windows": windows,
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        f"{server_url.rstrip('/')}/lookup",
+        data=body,
+        headers={"Content-Type": "application/json", "X-API-Key": api_key},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read())
+
+
+def lookup_book_by_signature(epub_path, api_key, timeout=15):
+    """Calcule la signature de epub_path et interroge lookup_by_fingerprint.
+    Ne touche jamais au fichier ni à ses métadonnées — fingerprint_epub
+    est documenté LECTURE SEULE (voir fingerprint.py)."""
+    fp = fingerprint_epub(epub_path)
+    windows = [
+        {"pct": w["pct"], "signature": w["signature"], "word_count": w["word_count"]}
+        for w in fp["windows"]
+    ]
+    return lookup_by_fingerprint(SERVER_URL, api_key, fp["exact_hash"], fp["total_words"], windows, timeout=timeout)
+
+
 # ---------- Cycle complet : scan + push ----------
 
 def run_scan_and_push(db_api, log=print):
