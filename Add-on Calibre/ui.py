@@ -197,7 +197,7 @@ class WhatEpubAction(InterfaceAction):
         work = result["work"]
         lines = [
             _("Titre : {title}").format(title=work["title"]),
-            _("Auteur(s) : {authors}").format(authors=", ".join(work["authors"]) or "—"),
+            _("Auteur : {author}").format(author=work["author"] or "—"),
         ]
         if work.get("series_name"):
             lines.append(_("Série : {series} (tome {index})").format(

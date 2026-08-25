@@ -66,8 +66,8 @@ msgstr "No match found in the WhatEpub catalog for this book."
 msgid "Titre : {title}"
 msgstr "Title: {title}"
 
-msgid "Auteur(s) : {authors}"
-msgstr "Author(s): {authors}"
+msgid "Auteur : {author}"
+msgstr "Author: {author}"
 
 msgid "Série : {series} (tome {index})"
 msgstr "Series: {series} (book {index})"
