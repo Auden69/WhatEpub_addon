@@ -386,16 +386,19 @@ def _fix_author_casing(db_api, book_id, wanted_name, log=print):
     une autre casse : Calibre retrouve l'entrée existante par comparaison
     insensible à la casse et garde SA casse d'origine (ex. book resté sur
     "Pierre DAC" après avoir demandé "Pierre Dac" — cas rencontré en
-    prod). Seul un renommage explicite de l'entrée authors (rename_author,
-    par id) corrige réellement l'affichage. Best-effort : le reste des
-    métadonnées est déjà appliqué, un échec ici ne doit pas le remettre
-    en cause."""
+    prod). Seul un renommage explicite de l'entrée authors corrige
+    réellement l'affichage — via rename_items('authors', {id: nom}), API
+    générique aussi utilisée pour tags/séries (PAS de rename_author
+    dédié : vérifié contre calibre/db/cache.py, une première version
+    appelait une méthode inexistante, échec avalé silencieusement par ce
+    même try/except). Best-effort : le reste des métadonnées est déjà
+    appliqué, un échec ici ne doit pas le remettre en cause."""
     try:
         author_ids = db_api.fields["authors"].ids_for_book(book_id)
         for author_id in author_ids:
             current = db_api.author_data([author_id]).get(author_id, {}).get("name")
             if current and current != wanted_name and current.lower() == wanted_name.lower():
-                db_api.rename_author(author_id, wanted_name)
+                db_api.rename_items("authors", {author_id: wanted_name})
     except Exception as e:
         log(f"[whatepub] Échec correction casse auteur (book_id={book_id}) : {type(e).__name__}: {e}")
 
