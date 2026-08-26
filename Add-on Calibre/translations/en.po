@@ -72,6 +72,12 @@ msgstr "Author: {author}"
 msgid "Série : {series} (tome {index})"
 msgstr "Series: {series} (book {index})"
 
+msgid "Série : {series}"
+msgstr "Series: {series}"
+
+msgid "Tome {index}"
+msgstr "Book {index}"
+
 msgid "Langue : {lang}"
 msgstr "Language: {lang}"
 
@@ -104,3 +110,15 @@ msgstr "Send failed: {error}"
 
 msgid "Livre envoyé — la résolution se fait en arrière-plan côté serveur."
 msgstr "Book sent — resolution happens in the background on the server."
+
+msgid "Mettre à jour mes métadonnées"
+msgstr "Update my metadata"
+
+msgid "Remplacer les métadonnées locales de ce livre (titre, auteur, série, langue, année, résumé, couverture) par celles de WhatEpub ? Cette action est irréversible."
+msgstr "Replace this book's local metadata (title, author, series, language, year, summary, cover) with WhatEpub's? This action is irreversible."
+
+msgid "Échec de la mise à jour des métadonnées : {error}"
+msgstr "Metadata update failed: {error}"
+
+msgid "Métadonnées mises à jour."
+msgstr "Metadata updated."

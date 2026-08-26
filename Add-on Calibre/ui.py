@@ -7,9 +7,12 @@ des résultats, avec run_lock anti-chevauchement et backoff si le
 serveur ne répond pas.
 """
 
-from qt.core import QTimer, QMenu, QThread, pyqtSignal
+from qt.core import (
+    QTimer, QMenu, QThread, pyqtSignal,
+    QDialog, QVBoxLayout, QTextEdit, QDialogButtonBox,
+)
 
-from calibre.gui2 import error_dialog, info_dialog
+from calibre.gui2 import error_dialog, info_dialog, question_dialog
 from calibre.gui2.actions import InterfaceAction
 
 from calibre_plugins.whatepub.config import prefs
@@ -208,10 +211,14 @@ class WhatEpubAction(InterfaceAction):
             _("Titre : {title}").format(title=work["title"]),
             _("Auteur : {author}").format(author=work["author"] or "—"),
         ]
-        if work.get("series_name"):
+        if work.get("series_name") and work.get("series_index"):
             lines.append(_("Série : {series} (tome {index})").format(
-                series=work["series_name"], index=work.get("series_index") or "?"
+                series=work["series_name"], index=work["series_index"]
             ))
+        elif work.get("series_name"):
+            lines.append(_("Série : {series}").format(series=work["series_name"]))
+        elif work.get("series_index"):
+            lines.append(_("Tome {index}").format(index=work["series_index"]))
         if work.get("publication_year"):
             lines.append(_("Année de publication : {year}").format(year=work["publication_year"]))
         if work.get("language"):
@@ -231,7 +238,62 @@ class WhatEpubAction(InterfaceAction):
             method=result["match_method"], confidence=result["confidence"]
         ))
 
-        info_dialog(self.gui, "WhatEpub", "\n".join(lines), show=True)
+        self._show_work_dialog(book_id, work, "\n".join(lines))
+
+    def _show_work_dialog(self, book_id, work, text):
+        """Fenêtre de vérification : affichage lecture seule des métas
+        serveur + bouton optionnel pour les appliquer sur le livre
+        Calibre sélectionné. Remplace l'ancien info_dialog (simple
+        popup sans action possible)."""
+        dialog = QDialog(self.gui)
+        dialog.setWindowTitle("WhatEpub")
+
+        layout = QVBoxLayout(dialog)
+        text_widget = QTextEdit(dialog)
+        text_widget.setReadOnly(True)
+        text_widget.setPlainText(text)
+        layout.addWidget(text_widget)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, dialog)
+        update_button = buttons.addButton(
+            _("Mettre à jour mes métadonnées"), QDialogButtonBox.ButtonRole.ActionRole
+        )
+        update_button.clicked.connect(lambda: self._apply_metadata_to_book(book_id, work, dialog))
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        dialog.resize(520, 420)
+        dialog.exec()
+
+    def _apply_metadata_to_book(self, book_id, work, dialog):
+        """Applique les métas WhatEpub sur le livre sélectionné — écrase
+        les métadonnées Calibre locales (titre, auteur, série, langue,
+        année, résumé, identifiants, couverture) avec celles résolues
+        côté serveur. Uniquement à la demande explicite (ce bouton),
+        jamais automatique — confirmation requise vu le caractère
+        destructif pour les métadonnées locales existantes."""
+        if not question_dialog(
+            self.gui, "WhatEpub",
+            _("Remplacer les métadonnées locales de ce livre (titre, auteur, "
+              "série, langue, année, résumé, couverture) par celles de "
+              "WhatEpub ? Cette action est irréversible."),
+        ):
+            return
+
+        db_api = self.gui.current_db.new_api
+        try:
+            sync_worker.apply_work_metadata(db_api, book_id, work, log=self._log)
+        except Exception as e:
+            error_dialog(
+                self.gui, "WhatEpub",
+                _("Échec de la mise à jour des métadonnées : {error}").format(error=str(e)),
+                show=True,
+            )
+            return
+
+        self.gui.library_view.model().refresh_ids([book_id])
+        dialog.accept()
+        info_dialog(self.gui, "WhatEpub", _("Métadonnées mises à jour."), show=True)
 
     def push_selected_book(self):
         """Envoie le livre sélectionné vers WhatEpub (POST /ingest),

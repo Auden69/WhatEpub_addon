@@ -11,6 +11,7 @@ package externe (pas de pip install possible dans l'environnement
 Calibre embarqué).
 """
 
+import datetime
 import hashlib
 import json
 import re
@@ -23,6 +24,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 from calibre.utils.config import config_dir
+from calibre.utils.date import utc_tz
 
 from calibre_plugins.whatepub.config import prefs, SERVER_URL
 from calibre_plugins.whatepub.fingerprint import fingerprint_epub
@@ -366,6 +368,59 @@ def lookup_book_by_signature(epub_path, api_key, timeout=15):
         for w in fp["windows"]
     ]
     return lookup_by_fingerprint(SERVER_URL, api_key, fp["exact_hash"], fp["total_words"], windows, timeout=timeout)
+
+
+def fetch_cover_bytes(cover_hash, timeout=15):
+    """GET /covers/{hash} — public, sans authentification (même route
+    que celle utilisée côté admin en <img src="...">, cf. server/main.py)."""
+    req = urllib.request.Request(f"{SERVER_URL.rstrip('/')}/covers/{cover_hash}")
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read()
+
+
+def apply_work_metadata(db_api, book_id, work, log=print):
+    """Écrase les métadonnées Calibre locales du livre sélectionné avec
+    celles de l'œuvre résolue côté serveur (work, tel que renvoyé par
+    /lookup). DESTRUCTIF pour les métadonnées locales — jamais appelé
+    automatiquement (voir lookup_by_fingerprint) : uniquement à la
+    demande explicite de l'utilisateur, via le bouton "Mettre à jour mes
+    métadonnées" de la fenêtre de vérification. N'écrase un champ que si
+    le serveur a une valeur pour lui, jamais avec du vide."""
+    mi = db_api.get_metadata(book_id)
+
+    if work.get("title"):
+        mi.title = work["title"]
+    if work.get("author"):
+        mi.authors = [work["author"]]
+    if work.get("series_name"):
+        mi.series = work["series_name"]
+        if work.get("series_index") is not None:
+            mi.series_index = float(work["series_index"])
+    if work.get("language"):
+        mi.languages = [work["language"]]
+    if work.get("publication_year"):
+        # Le serveur ne connaît que l'année (pas de mois/jour) — 1er
+        # janvier en approximation, comme les autres plugins de
+        # métadonnées Calibre quand seule l'année est connue.
+        mi.pubdate = datetime.datetime(int(work["publication_year"]), 1, 1, tzinfo=utc_tz)
+    if work.get("summary"):
+        mi.comments = work["summary"]
+    if work.get("external_ids"):
+        identifiers = mi.get_identifiers() or {}
+        identifiers.update(work["external_ids"])
+        mi.set_identifiers(identifiers)
+
+    db_api.set_metadata(book_id, mi)
+
+    if work.get("cover_hash"):
+        try:
+            cover_data = fetch_cover_bytes(work["cover_hash"])
+            db_api.set_cover(book_id, cover_data)
+        except Exception as e:
+            # Best-effort, comme sync_cover_if_needed : le reste des
+            # métadonnées est déjà appliqué, pas de raison de le perdre
+            # pour un échec de récupération de la seule couverture.
+            log(f"[whatepub] Échec récupération cover (book_id={book_id}) : {type(e).__name__}: {e}")
 
 
 def push_single_book(db_api, book_id, api_key, log=print):
