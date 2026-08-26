@@ -378,6 +378,28 @@ def fetch_cover_bytes(cover_hash, timeout=15):
         return resp.read()
 
 
+def _fix_author_casing(db_api, book_id, wanted_name, log=print):
+    """Calibre lie les auteurs à un livre PAR NOM en ignorant la casse
+    (table interne authors, unicité insensible à la casse) — assigner
+    mi.authors = [wanted_name] puis set_metadata() ne suffit donc pas à
+    corriger la casse d'un auteur déjà présent dans la bibliothèque sous
+    une autre casse : Calibre retrouve l'entrée existante par comparaison
+    insensible à la casse et garde SA casse d'origine (ex. book resté sur
+    "Pierre DAC" après avoir demandé "Pierre Dac" — cas rencontré en
+    prod). Seul un renommage explicite de l'entrée authors (rename_author,
+    par id) corrige réellement l'affichage. Best-effort : le reste des
+    métadonnées est déjà appliqué, un échec ici ne doit pas le remettre
+    en cause."""
+    try:
+        author_ids = db_api.fields["authors"].ids_for_book(book_id)
+        for author_id in author_ids:
+            current = db_api.author_data([author_id]).get(author_id, {}).get("name")
+            if current and current != wanted_name and current.lower() == wanted_name.lower():
+                db_api.rename_author(author_id, wanted_name)
+    except Exception as e:
+        log(f"[whatepub] Échec correction casse auteur (book_id={book_id}) : {type(e).__name__}: {e}")
+
+
 def apply_work_metadata(db_api, book_id, work, log=print):
     """Écrase les métadonnées Calibre locales du livre sélectionné avec
     celles de l'œuvre résolue côté serveur (work, tel que renvoyé par
@@ -411,6 +433,9 @@ def apply_work_metadata(db_api, book_id, work, log=print):
         mi.set_identifiers(identifiers)
 
     db_api.set_metadata(book_id, mi)
+
+    if work.get("author"):
+        _fix_author_casing(db_api, book_id, work["author"], log=log)
 
     if work.get("cover_hash"):
         try:
