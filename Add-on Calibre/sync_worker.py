@@ -19,6 +19,7 @@ import sqlite3
 import time
 import urllib.request
 import urllib.error
+import urllib.parse
 import uuid
 from html.parser import HTMLParser
 from pathlib import Path
@@ -630,15 +631,28 @@ def run_poll_results(log=print):
 _BULK_SYNC_PAGE_SIZE = 200
 
 
-def fetch_resolved_page(server_url, api_key, after_id, limit=_BULK_SYNC_PAGE_SIZE, timeout=30):
+def fetch_resolved_page(server_url, api_key, cursor, limit=_BULK_SYNC_PAGE_SIZE, timeout=30):
     """GET /sync/resolved — une page de livres résolus (calibre_book_id +
     work_info complet), pensé pour une bibliothèque de dizaines de
     milliers de livres : un seul appel par page plutôt qu'un /books/{id}
-    par livre (voir run_poll_results, qui ne scale pas à cette taille)."""
-    req = urllib.request.Request(
-        f"{server_url.rstrip('/')}/sync/resolved?after_id={after_id}&limit={limit}",
-        headers={"X-API-Key": api_key},
-    )
+    par livre (voir run_poll_results, qui ne scale pas à cette taille).
+
+    cursor : dict avec after_updated_at/after_work_id/after_source_book_id
+    (voir DEFAULT_CURSOR) — le curseur composite renvoyé par le serveur
+    est réinjecté tel quel à l'appel suivant. urlencode() est OBLIGATOIRE
+    ici : after_updated_at contient un '+' (fuseau horaire, ex.
+    '2026-09-18T07:03:40+00:00') qu'une simple f-string dans l'URL
+    laisserait tel quel — un '+' non échappé dans une query string est
+    interprété comme un espace, ce qui corrompt le timestamp côté
+    serveur (bug réel rencontré en test direct, 2026-09-18)."""
+    params = {
+        "after_updated_at": cursor["after_updated_at"],
+        "after_work_id": cursor["after_work_id"],
+        "after_source_book_id": cursor["after_source_book_id"],
+        "limit": limit,
+    }
+    url = f"{server_url.rstrip('/')}/sync/resolved?{urllib.parse.urlencode(params)}"
+    req = urllib.request.Request(url, headers={"X-API-Key": api_key})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read())
 
@@ -652,12 +666,17 @@ def run_bulk_metadata_sync(db_api, log=print, resume=True, progress=None):
     resynchro ponctuel de 2026-09-02 ne s'applique ici, ils venaient
     justement du contournement de l'appli Calibre, pas de cette voie).
 
-    resume=True (défaut) : ne relit que les livres résolus depuis le
-    dernier appel (curseur bulk_sync_state.last_after_id) — un run
-    répété ne fait donc que rattraper les nouvelles résolutions.
-    resume=False : repart de zéro, réapplique TOUT le catalogue résolu
-    (utile après une grosse session de corrections côté admin WhatEpub
-    sur des livres déjà synchronisés une première fois).
+    resume=True (défaut) : ne relit que les livres dont le WORK a changé
+    depuis le dernier appel (curseur composite bulk_sync_state, calé sur
+    works.updated_at côté serveur — voir postgres/schema_postgres.sql,
+    triggers ajoutés le 2026-09-18) — capture donc aussi bien les
+    nouvelles résolutions que les corrections faites après coup
+    (renommage d'auteur, rattachement de série...) sur un work déjà
+    synchronisé une première fois, pas seulement les toutes nouvelles
+    résolutions.
+    resume=False : repart de zéro (curseur remis à l'origine),
+    réapplique TOUT le catalogue résolu — utile pour une toute première
+    synchro, ou en cas de doute sur l'état du curseur local.
 
     progress(checked, applied) : callback optionnel appelé après chaque
     page, pour un retour utilisateur sur une synchro qui peut prendre
@@ -677,21 +696,29 @@ def run_bulk_metadata_sync(db_api, log=print, resume=True, progress=None):
     valid_ids = set(db_api.all_book_ids())
 
     state_conn = get_state_conn()
+    default_cursor = {
+        "after_updated_at": "1970-01-01T00:00:00+00:00",
+        "after_work_id": 0,
+        "after_source_book_id": 0,
+    }
     if resume:
-        row = state_conn.execute(
-            "SELECT value FROM bulk_sync_state WHERE key = 'last_after_id'"
-        ).fetchone()
-        after_id = int(row["value"]) if row else 0
+        rows = state_conn.execute(
+            "SELECT key, value FROM bulk_sync_state WHERE key LIKE 'cursor_%'"
+        ).fetchall()
+        cursor = dict(default_cursor)
+        for row in rows:
+            field = row["key"][len("cursor_"):]
+            cursor[field] = int(row["value"]) if field != "after_updated_at" else row["value"]
     else:
-        after_id = 0
+        cursor = dict(default_cursor)
 
     checked = applied = skipped_missing = failed = 0
 
     while True:
         try:
-            page = fetch_resolved_page(SERVER_URL, api_key, after_id)
+            page = fetch_resolved_page(SERVER_URL, api_key, cursor)
         except Exception as e:
-            log(f"[whatepub] Échec récupération page (after_id={after_id}) : {type(e).__name__}: {e}")
+            log(f"[whatepub] Échec récupération page (cursor={cursor}) : {type(e).__name__}: {e}")
             break
 
         books = page.get("books", [])
@@ -725,19 +752,27 @@ def run_bulk_metadata_sync(db_api, log=print, resume=True, progress=None):
                 failed += 1
                 log(f"[whatepub] Échec application métadonnées (book_id={book_id}) : {type(e).__name__}: {e}")
 
-        after_id = page.get("next_after_id")
-
-        state_conn.execute(
-            "INSERT INTO bulk_sync_state (key, value) VALUES ('last_after_id', ?) "
-            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            (str(after_id if after_id is not None else 0),),
-        )
+        # Le serveur renvoie toujours le curseur de la dernière ligne vue
+        # tant que "books" est non vide (voir server/main.py) — la boucle
+        # s'arrête sur "books vide" (plus haut), jamais sur un curseur
+        # null ici.
+        cursor = {
+            "after_updated_at": page["next_after_updated_at"],
+            "after_work_id": page["next_after_work_id"],
+            "after_source_book_id": page["next_after_source_book_id"],
+        }
+        for field, value in cursor.items():
+            state_conn.execute(
+                "INSERT INTO bulk_sync_state (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (f"cursor_{field}", str(value)),
+            )
         state_conn.commit()
 
         if progress:
             progress(checked, applied)
 
-        if after_id is None:
+        if len(books) < _BULK_SYNC_PAGE_SIZE:
             break
 
     state_conn.close()
