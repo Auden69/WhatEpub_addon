@@ -98,12 +98,16 @@ class WhatEpubAction(InterfaceAction):
         self.qaction.setMenu(menu)
 
         self._bulk_sync_thread = None
+        self._bulk_sync_silent = False
 
         self._scan_timer = QTimer(self.gui)
         self._scan_timer.timeout.connect(self._run_scan_cycle)
 
         self._poll_timer = QTimer(self.gui)
         self._poll_timer.timeout.connect(self._run_poll_cycle)
+
+        self._bulk_sync_timer = QTimer(self.gui)
+        self._bulk_sync_timer.timeout.connect(self._run_auto_bulk_sync_cycle)
 
         self._is_running = False          # run_lock anti-chevauchement
         self._consecutive_failures = 0    # pour le backoff
@@ -118,6 +122,13 @@ class WhatEpubAction(InterfaceAction):
         poll_ms = prefs["poll_interval_minutes"] * 60 * 1000
         self._scan_timer.start(scan_ms)
         self._poll_timer.start(poll_ms)
+
+        # 0 = désactivé (défaut) — jamais démarré sans que l'utilisateur
+        # l'ait explicitement activé dans les Paramètres (voir config.py).
+        bulk_sync_minutes = prefs["bulk_sync_interval_minutes"]
+        self._bulk_sync_timer.stop()
+        if bulk_sync_minutes > 0:
+            self._bulk_sync_timer.start(bulk_sync_minutes * 60 * 1000)
 
     def _restart_scan_timer(self, minutes):
         self._scan_timer.setInterval(minutes * 60 * 1000)
@@ -360,7 +371,7 @@ class WhatEpubAction(InterfaceAction):
         """Applique les métadonnées déjà résolues côté WhatEpub sur toute
         la bibliothèque — ne relit que ce qui a été résolu depuis le
         dernier appel (voir run_bulk_metadata_sync, resume=True)."""
-        self._start_bulk_sync(resume=True)
+        self._start_bulk_sync(resume=True, require_confirmation=True)
 
     def bulk_resync_library(self):
         """Comme bulk_sync_library, mais repart de zéro (resume=False) —
@@ -373,17 +384,29 @@ class WhatEpubAction(InterfaceAction):
               "précédemment. Continuer ?"),
         ):
             return
-        self._start_bulk_sync(resume=False)
+        self._start_bulk_sync(resume=False, require_confirmation=True)
 
-    def _start_bulk_sync(self, resume):
+    def _run_auto_bulk_sync_cycle(self):
+        """Déclenché par _bulk_sync_timer, uniquement si l'utilisateur a
+        explicitement mis un intervalle > 0 dans les Paramètres (0 =
+        désactivé par défaut, voir config.py) — jamais de dialogue de
+        confirmation ici (décision actée : WhatEpub devient la référence),
+        seulement le journal discret de la barre de statut. Toujours
+        resume=True (jamais un resync complet automatique, trop lourd à
+        répéter sans surveillance)."""
+        self._start_bulk_sync(resume=True, require_confirmation=False)
+
+    def _start_bulk_sync(self, resume, require_confirmation):
         if self._bulk_sync_thread is not None and self._bulk_sync_thread.isRunning():
-            error_dialog(self.gui, "WhatEpub", _("Une synchro retour est déjà en cours."), show=True)
-            return
+            if require_confirmation:
+                error_dialog(self.gui, "WhatEpub", _("Une synchro retour est déjà en cours."), show=True)
+            return  # cycle auto : on saute ce tick silencieusement, comme _launch_sync_thread
         if not prefs["api_key"]:
-            error_dialog(self.gui, "WhatEpub", _("Configure d'abord ta clé API (Paramètres...)."), show=True)
+            if require_confirmation:
+                error_dialog(self.gui, "WhatEpub", _("Configure d'abord ta clé API (Paramètres...)."), show=True)
             return
 
-        if not question_dialog(
+        if require_confirmation and not question_dialog(
             self.gui, "WhatEpub",
             _("Applique les métadonnées résolues côté WhatEpub (titre, auteur, "
               "série, langue, année, résumé, couverture) sur les livres "
@@ -391,6 +414,8 @@ class WhatEpubAction(InterfaceAction):
               "locales existantes. Continuer ?"),
         ):
             return
+
+        self._bulk_sync_silent = not require_confirmation
 
         db_api = self.gui.current_db.new_api
         self._bulk_sync_thread = BulkSyncThread(db_api, resume)
@@ -408,22 +433,28 @@ class WhatEpubAction(InterfaceAction):
 
     def _handle_bulk_finished(self, result):
         self.gui.library_view.model().refresh()  # rafraîchit toute la vue (contrairement à refresh_ids, pour un lot)
-        info_dialog(
-            self.gui, "WhatEpub",
-            _("Synchro retour terminée : {applied} livre(s) mis à jour, "
-              "{skipped} ignoré(s), {failed} échec(s), sur {checked} vérifié(s).").format(
-                applied=result["applied"], skipped=result["skipped_missing"],
-                failed=result["failed"], checked=result["checked"],
-            ),
-            show=True,
+        message = _("Synchro retour terminée : {applied} livre(s) mis à jour, "
+                     "{skipped} ignoré(s), {failed} échec(s), sur {checked} vérifié(s).").format(
+            applied=result["applied"], skipped=result["skipped_missing"],
+            failed=result["failed"], checked=result["checked"],
         )
+        if self._bulk_sync_silent:
+            # Cycle automatique : jamais de popup qui interrompt
+            # l'utilisateur, seulement la barre de statut (même
+            # discrétion que _handle_cycle_result pour scan/poll).
+            self._log(f"[whatepub] {message}")
+        else:
+            info_dialog(self.gui, "WhatEpub", message, show=True)
 
     def _handle_bulk_error(self, message):
-        error_dialog(
-            self.gui, "WhatEpub",
-            _("Échec de la synchro retour : {error}").format(error=message),
-            show=True,
-        )
+        if self._bulk_sync_silent:
+            self._log(_("[whatepub] Échec de la synchro retour automatique : {error}").format(error=message))
+        else:
+            error_dialog(
+                self.gui, "WhatEpub",
+                _("Échec de la synchro retour : {error}").format(error=message),
+                show=True,
+            )
 
     # ---------- Log ----------
 

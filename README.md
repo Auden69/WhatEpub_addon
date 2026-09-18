@@ -31,6 +31,7 @@ Les autres réglages disponibles :
 | Scan/push (minutes) | 20 | Fréquence d'envoi des livres nouveaux/modifiés |
 | Poll résultats (minutes) | 3 | Fréquence de relecture du statut des livres déjà envoyés |
 | Taille de batch | 50 | Nombre de livres par requête d'envoi |
+| Synchro retour auto (minutes) | 0 (désactivé) | Applique automatiquement, **sans confirmation**, les métadonnées WhatEpub sur cette bibliothèque à l'intervalle choisi — voir "Synchro retour" ci-dessous avant d'activer |
 
 L'URL du serveur n'est pas configurable — le plugin ne parle qu'à l'instance
 officielle WhatEpub (`api.whatepub.com`).
@@ -70,6 +71,14 @@ ne modifie rien localement.
   tout le catalogue résolu, y compris ce qui a déjà été synchronisé — utile
   après des corrections faites côté admin WhatEpub sur des livres déjà
   synchronisés une première fois.
+
+**Synchro retour automatique** (réglage "Synchro retour auto", désactivé par
+défaut) : au lieu de cliquer "Synchroniser toute la bibliothèque" à la main,
+un cycle automatique tourne à l'intervalle choisi — **sans aucune
+confirmation**. WhatEpub devient alors la référence : une correction faite à
+la main directement dans Calibre sur un livre déjà résolu peut être écrasée
+au cycle suivant, WhatEpub ne sachant pas la distinguer d'une donnée à
+corriger. Réservé à un usage où WhatEpub fait foi ; laisser à 0 sinon.
 
 ## Signature epub
 

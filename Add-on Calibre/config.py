@@ -20,6 +20,12 @@ prefs.defaults["api_key"] = ""
 prefs.defaults["scan_interval_minutes"] = 20
 prefs.defaults["poll_interval_minutes"] = 3
 prefs.defaults["batch_size"] = 50
+# 0 = désactivé (défaut) — synchro retour (WhatEpub -> Calibre)
+# automatique et SANS confirmation quand activé (voir run.bulk_sync_library
+# côté ui.py) : WhatEpub devient la référence, une correction faite à la
+# main directement dans Calibre peut être écrasée au cycle suivant.
+# Décision explicite de l'utilisateur (2026-09-18), jamais le défaut.
+prefs.defaults["bulk_sync_interval_minutes"] = 0
 
 
 class ConfigWidget(QWidget):
@@ -48,9 +54,23 @@ class ConfigWidget(QWidget):
         self.batch_size_spin.setValue(prefs["batch_size"])
         form.addRow(_("Taille de batch :"), self.batch_size_spin)
 
+        self.bulk_sync_interval_spin = QSpinBox(self)
+        self.bulk_sync_interval_spin.setRange(0, 1440)
+        self.bulk_sync_interval_spin.setSpecialValueText(_("désactivé"))
+        self.bulk_sync_interval_spin.setValue(prefs["bulk_sync_interval_minutes"])
+        form.addRow(_("Synchro retour auto (minutes) :"), self.bulk_sync_interval_spin)
+
         layout.addWidget(QLabel(
             _("La clé API est fournie par l'administrateur du serveur "
               "(générée lors de la création de l'installation).")
+        ))
+        layout.addWidget(QLabel(
+            _("Synchro retour auto : applique automatiquement, SANS confirmation, "
+              "les métadonnées résolues côté WhatEpub sur cette bibliothèque à "
+              "l'intervalle choisi. WhatEpub devient la référence — une correction "
+              "faite à la main directement dans Calibre peut être écrasée au "
+              "cycle suivant. Laisser à 0 (désactivé) pour garder le contrôle "
+              "manuel (boutons du menu).")
         ))
 
     def save_settings(self):
@@ -58,3 +78,4 @@ class ConfigWidget(QWidget):
         prefs["scan_interval_minutes"] = self.scan_interval_spin.value()
         prefs["poll_interval_minutes"] = self.poll_interval_spin.value()
         prefs["batch_size"] = self.batch_size_spin.value()
+        prefs["bulk_sync_interval_minutes"] = self.bulk_sync_interval_spin.value()
