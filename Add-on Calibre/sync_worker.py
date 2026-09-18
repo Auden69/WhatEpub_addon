@@ -454,7 +454,13 @@ def apply_work_metadata(db_api, book_id, work, log=print):
     if work.get("cover_hash"):
         try:
             cover_data = fetch_cover_bytes(work["cover_hash"])
-            db_api.set_cover(book_id, cover_data)
+            # set_cover prend un dict {book_id: data}, pas deux arguments
+            # positionnels — vérifié contre l'API Calibre réelle
+            # (calibre.db.cache.Cache.set_cover) le 2026-09-18, la première
+            # version appelait la mauvaise signature (TypeError avalé par
+            # ce même try/except, jamais visible avant un test en
+            # conditions réelles).
+            db_api.set_cover({book_id: cover_data})
         except Exception as e:
             # Best-effort, comme sync_cover_if_needed : le reste des
             # métadonnées est déjà appliqué, pas de raison de le perdre
