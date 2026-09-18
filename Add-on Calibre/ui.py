@@ -7,6 +7,8 @@ des résultats, avec run_lock anti-chevauchement et backoff si le
 serveur ne répond pas.
 """
 
+import webbrowser
+
 from qt.core import (
     QTimer, QMenu, QThread, pyqtSignal,
     QDialog, QVBoxLayout, QTextEdit, QDialogButtonBox,
@@ -15,7 +17,7 @@ from qt.core import (
 from calibre.gui2 import error_dialog, info_dialog, question_dialog
 from calibre.gui2.actions import InterfaceAction
 
-from calibre_plugins.whatepub.config import prefs
+from calibre_plugins.whatepub.config import prefs, WEB_URL
 from calibre_plugins.whatepub import sync_worker
 
 load_translations()
@@ -90,6 +92,7 @@ class WhatEpubAction(InterfaceAction):
         menu.addSeparator()
         menu.addAction(_("Envoyer le livre sélectionné"), self.push_selected_book)
         menu.addAction(_("Vérifier le livre sélectionné"), self.check_selected_book)
+        menu.addAction(_("Voir la fiche WhatEpub"), self.open_selected_book_page)
         menu.addSeparator()
         menu.addAction(_("Synchroniser toute la bibliothèque (retour WhatEpub)"), self.bulk_sync_library)
         menu.addAction(_("Resynchroniser tout depuis le début (retour WhatEpub)"), self.bulk_resync_library)
@@ -252,7 +255,7 @@ class WhatEpubAction(InterfaceAction):
         work = result["work"]
         lines = [
             _("Titre : {title}").format(title=work["title"]),
-            _("Auteur : {author}").format(author=work["author"] or "—"),
+            _("Auteur(s) : {authors}").format(authors=", ".join(work.get("authors") or []) or "—"),
         ]
         if work.get("series_name") and work.get("series_index"):
             lines.append(_("Série : {series} (tome {index})").format(
@@ -283,6 +286,33 @@ class WhatEpubAction(InterfaceAction):
 
         self._show_work_dialog(book_id, work, "\n".join(lines))
 
+    def open_selected_book_page(self):
+        """Ouvre la fiche publique (www.whatepub.com/works/{code}) du
+        livre sélectionné dans le navigateur par défaut, à partir de
+        l'identifiant "whatepub" stocké localement lors d'une synchro
+        précédente (voir sync_worker.py apply_work_metadata) — aucun
+        appel réseau ici, lecture pure des métadonnées Calibre déjà en
+        base. Si le livre n'a jamais été synchronisé, l'identifiant
+        n'existe pas encore : on l'indique plutôt que d'ouvrir une page
+        404."""
+        book_id = self._get_single_selected_book_id()
+        if book_id is None:
+            return
+
+        db_api = self.gui.current_db.new_api
+        identifiers = db_api.field_for("identifiers", book_id) or {}
+        code = identifiers.get("whatepub")
+        if not code:
+            info_dialog(
+                self.gui, "WhatEpub",
+                _("Ce livre n'est pas encore lié à une fiche WhatEpub. Utilise d'abord "
+                  "\"Vérifier le livre sélectionné\", puis \"Mettre à jour mes métadonnées\"."),
+                show=True,
+            )
+            return
+
+        webbrowser.open(f"{WEB_URL}/works/{code}")
+
     def _show_work_dialog(self, book_id, work, text):
         """Fenêtre de vérification : affichage lecture seule des métas
         serveur + bouton optionnel pour les appliquer sur le livre
@@ -302,6 +332,11 @@ class WhatEpubAction(InterfaceAction):
             _("Mettre à jour mes métadonnées"), QDialogButtonBox.ButtonRole.ActionRole
         )
         update_button.clicked.connect(lambda: self._apply_metadata_to_book(book_id, work, dialog))
+        if work.get("public_code"):
+            view_button = buttons.addButton(
+                _("Voir la fiche en ligne"), QDialogButtonBox.ButtonRole.ActionRole
+            )
+            view_button.clicked.connect(lambda: webbrowser.open(f"{WEB_URL}/works/{work['public_code']}"))
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
 

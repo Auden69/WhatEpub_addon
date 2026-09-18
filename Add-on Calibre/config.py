@@ -15,6 +15,9 @@ prefs = JSONConfig("plugins/whatepub")
 # URL du serveur en dur (pas un champ de config) : ce plugin ne parle
 # qu'à l'instance officielle WhatEpub, jamais à un serveur arbitraire.
 SERVER_URL = "https://api.whatepub.com"
+# Site public (fiche œuvre en lecture seule, pas d'API) — distinct du
+# serveur d'ingestion ci-dessus, voir web/main.py côté serveur.
+WEB_URL = "https://www.whatepub.com"
 
 prefs.defaults["api_key"] = ""
 prefs.defaults["scan_interval_minutes"] = 20

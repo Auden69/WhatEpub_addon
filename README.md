@@ -61,7 +61,13 @@ ne modifie rien localement.
 - **Vérifier le livre sélectionné** : interroge le serveur par signature
   epub, affiche ce qu'il a trouvé, et propose un bouton "Mettre à jour mes
   métadonnées" pour l'appliquer à CE livre (titre, auteur, série, langue,
-  année, résumé, identifiants, couverture — écrase les valeurs locales).
+  année, résumé, identifiants, couverture — écrase les valeurs locales), ainsi
+  qu'un bouton "Voir la fiche en ligne" vers la page publique du livre.
+- **Voir la fiche WhatEpub** : ouvre directement la fiche publique
+  (`www.whatepub.com/works/...`) du livre sélectionné dans le navigateur,
+  à partir de l'identifiant `whatepub` enregistré lors d'une synchro
+  précédente — aucun appel réseau, fonctionne même hors ligne pour un livre
+  déjà synchronisé. Message d'info si le livre n'a jamais été synchronisé.
 - **Synchroniser toute la bibliothèque** : applique en une fois les
   métadonnées de tous les livres déjà résolus — ne relit que les
   résolutions survenues depuis le dernier appel (reprise automatique).

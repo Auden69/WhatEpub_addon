@@ -389,10 +389,10 @@ def fetch_cover_bytes(cover_hash, timeout=15):
         return resp.read()
 
 
-def _fix_author_casing(db_api, book_id, wanted_name, log=print):
+def _fix_author_casing(db_api, book_id, wanted_names, log=print):
     """Calibre lie les auteurs à un livre PAR NOM en ignorant la casse
     (table interne authors, unicité insensible à la casse) — assigner
-    mi.authors = [wanted_name] puis set_metadata() ne suffit donc pas à
+    mi.authors = wanted_names puis set_metadata() ne suffit donc pas à
     corriger la casse d'un auteur déjà présent dans la bibliothèque sous
     une autre casse : Calibre retrouve l'entrée existante par comparaison
     insensible à la casse et garde SA casse d'origine (ex. book resté sur
@@ -403,13 +403,22 @@ def _fix_author_casing(db_api, book_id, wanted_name, log=print):
     dédié : vérifié contre calibre/db/cache.py, une première version
     appelait une méthode inexistante, échec avalé silencieusement par ce
     même try/except). Best-effort : le reste des métadonnées est déjà
-    appliqué, un échec ici ne doit pas le remettre en cause."""
+    appliqué, un échec ici ne doit pas le remettre en cause.
+
+    wanted_names : liste (co-auteurs), chaque auteur du livre est
+    comparé à CHAQUE nom voulu — nécessaire depuis le passage à
+    plusieurs auteurs (2026-09-18), l'ordre des deux listes n'est pas
+    garanti identique (Calibre peut réordonner à l'insertion)."""
     try:
         author_ids = db_api.fields["authors"].ids_for_book(book_id)
         for author_id in author_ids:
             current = db_api.author_data([author_id]).get(author_id, {}).get("name")
-            if current and current != wanted_name and current.lower() == wanted_name.lower():
-                db_api.rename_items("authors", {author_id: wanted_name})
+            if not current:
+                continue
+            for wanted_name in wanted_names:
+                if current != wanted_name and current.lower() == wanted_name.lower():
+                    db_api.rename_items("authors", {author_id: wanted_name})
+                    break
     except Exception as e:
         log(f"[whatepub] Échec correction casse auteur (book_id={book_id}) : {type(e).__name__}: {e}")
 
@@ -426,8 +435,8 @@ def apply_work_metadata(db_api, book_id, work, log=print):
 
     if work.get("title"):
         mi.title = work["title"]
-    if work.get("author"):
-        mi.authors = [work["author"]]
+    if work.get("authors"):
+        mi.authors = work["authors"]
     if work.get("series_name"):
         mi.series = work["series_name"]
         if work.get("series_index") is not None:
@@ -441,15 +450,20 @@ def apply_work_metadata(db_api, book_id, work, log=print):
         mi.pubdate = datetime.datetime(int(work["publication_year"]), 1, 1, tzinfo=utc_tz)
     if work.get("summary"):
         mi.comments = work["summary"]
-    if work.get("external_ids"):
+    if work.get("external_ids") or work.get("public_code"):
         identifiers = mi.get_identifiers() or {}
-        identifiers.update(work["external_ids"])
+        identifiers.update(work.get("external_ids") or {})
+        # identifiant "whatepub" : sert à reconstruire le lien vers la
+        # fiche publique (www.whatepub.com/works/{code}) sans re-appeler
+        # le serveur — voir ui.py open_selected_book_page.
+        if work.get("public_code"):
+            identifiers["whatepub"] = work["public_code"]
         mi.set_identifiers(identifiers)
 
     db_api.set_metadata(book_id, mi)
 
-    if work.get("author"):
-        _fix_author_casing(db_api, book_id, work["author"], log=log)
+    if work.get("authors"):
+        _fix_author_casing(db_api, book_id, work["authors"], log=log)
 
     if work.get("cover_hash"):
         try:
