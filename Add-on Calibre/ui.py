@@ -51,6 +51,33 @@ class SyncThread(QThread):
             self.error_signal.emit(str(e))
 
 
+class BulkSyncThread(QThread):
+    """Synchro retour en masse (WhatEpub -> Calibre) sur un thread séparé
+    — même raison que SyncThread : peut porter sur des dizaines de
+    milliers de livres, jamais dans le thread UI."""
+    log_signal = pyqtSignal(str)
+    progress_signal = pyqtSignal(int, int)
+    finished_signal = pyqtSignal(dict)
+    error_signal = pyqtSignal(str)
+
+    def __init__(self, db_api, resume):
+        super().__init__()
+        self.db_api = db_api
+        self.resume = resume
+
+    def run(self):
+        try:
+            result = sync_worker.run_bulk_metadata_sync(
+                self.db_api,
+                log=self.log_signal.emit,
+                resume=self.resume,
+                progress=self.progress_signal.emit,
+            )
+            self.finished_signal.emit(result)
+        except Exception as e:
+            self.error_signal.emit(str(e))
+
+
 class WhatEpubAction(InterfaceAction):
     name = "WhatEpub"
     action_spec = ("WhatEpub", None, _("Synchronise avec le service bibliographique partagé"), None)
@@ -64,8 +91,13 @@ class WhatEpubAction(InterfaceAction):
         menu.addAction(_("Envoyer le livre sélectionné"), self.push_selected_book)
         menu.addAction(_("Vérifier le livre sélectionné"), self.check_selected_book)
         menu.addSeparator()
+        menu.addAction(_("Synchroniser toute la bibliothèque (retour WhatEpub)"), self.bulk_sync_library)
+        menu.addAction(_("Resynchroniser tout depuis le début (retour WhatEpub)"), self.bulk_resync_library)
+        menu.addSeparator()
         menu.addAction(_("Paramètres..."), self.show_config)
         self.qaction.setMenu(menu)
+
+        self._bulk_sync_thread = None
 
         self._scan_timer = QTimer(self.gui)
         self._scan_timer.timeout.connect(self._run_scan_cycle)
@@ -319,6 +351,77 @@ class WhatEpubAction(InterfaceAction):
         info_dialog(
             self.gui, "WhatEpub",
             _("Livre envoyé — la résolution se fait en arrière-plan côté serveur."),
+            show=True,
+        )
+
+    # ---------- Synchro retour en masse (WhatEpub -> Calibre) ----------
+
+    def bulk_sync_library(self):
+        """Applique les métadonnées déjà résolues côté WhatEpub sur toute
+        la bibliothèque — ne relit que ce qui a été résolu depuis le
+        dernier appel (voir run_bulk_metadata_sync, resume=True)."""
+        self._start_bulk_sync(resume=True)
+
+    def bulk_resync_library(self):
+        """Comme bulk_sync_library, mais repart de zéro (resume=False) —
+        utile après une grosse session de corrections côté admin sur des
+        livres déjà synchronisés une première fois."""
+        if not question_dialog(
+            self.gui, "WhatEpub",
+            _("Repartir de zéro va réappliquer les métadonnées WhatEpub sur "
+              "TOUS les livres déjà résolus, même ceux déjà synchronisés "
+              "précédemment. Continuer ?"),
+        ):
+            return
+        self._start_bulk_sync(resume=False)
+
+    def _start_bulk_sync(self, resume):
+        if self._bulk_sync_thread is not None and self._bulk_sync_thread.isRunning():
+            error_dialog(self.gui, "WhatEpub", _("Une synchro retour est déjà en cours."), show=True)
+            return
+        if not prefs["api_key"]:
+            error_dialog(self.gui, "WhatEpub", _("Configure d'abord ta clé API (Paramètres...)."), show=True)
+            return
+
+        if not question_dialog(
+            self.gui, "WhatEpub",
+            _("Applique les métadonnées résolues côté WhatEpub (titre, auteur, "
+              "série, langue, année, résumé, couverture) sur les livres "
+              "correspondants de cette bibliothèque. Remplace les métadonnées "
+              "locales existantes. Continuer ?"),
+        ):
+            return
+
+        db_api = self.gui.current_db.new_api
+        self._bulk_sync_thread = BulkSyncThread(db_api, resume)
+        self._bulk_sync_thread.log_signal.connect(self._log)
+        self._bulk_sync_thread.progress_signal.connect(self._handle_bulk_progress)
+        self._bulk_sync_thread.finished_signal.connect(self._handle_bulk_finished)
+        self._bulk_sync_thread.error_signal.connect(self._handle_bulk_error)
+        self._bulk_sync_thread.start()
+        self._log(_("[whatepub] Synchro retour en masse démarrée…"))
+
+    def _handle_bulk_progress(self, checked, applied):
+        self._log(_("[whatepub] Synchro retour : {checked} vérifié(s), {applied} appliqué(s)…").format(
+            checked=checked, applied=applied
+        ))
+
+    def _handle_bulk_finished(self, result):
+        self.gui.library_view.model().refresh()  # rafraîchit toute la vue (contrairement à refresh_ids, pour un lot)
+        info_dialog(
+            self.gui, "WhatEpub",
+            _("Synchro retour terminée : {applied} livre(s) mis à jour, "
+              "{skipped} ignoré(s), {failed} échec(s), sur {checked} vérifié(s).").format(
+                applied=result["applied"], skipped=result["skipped_missing"],
+                failed=result["failed"], checked=result["checked"],
+            ),
+            show=True,
+        )
+
+    def _handle_bulk_error(self, message):
+        error_dialog(
+            self.gui, "WhatEpub",
+            _("Échec de la synchro retour : {error}").format(error=message),
             show=True,
         )
 

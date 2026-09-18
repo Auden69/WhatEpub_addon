@@ -59,6 +59,16 @@ def get_state_conn():
             attempts INTEGER DEFAULT 0
         )
     """)
+    # Curseur GLOBAL (pas par livre, contrairement à addon_sync_state) de
+    # la dernière synchro retour en masse (GET /sync/resolved) — permet
+    # de ne relire que les livres résolus depuis la dernière fois, au
+    # lieu de repaginer toute la bibliothèque à chaque appel.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS bulk_sync_state (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    """)
     conn.commit()
     return conn
 
@@ -613,3 +623,124 @@ def run_poll_results(log=print):
         log(f"[whatepub] {resolved} livre(s) résolu(s) depuis le dernier poll.")
 
     return {"checked": len(pending_rows), "resolved": resolved}
+
+
+# ---------- Cycle complet : synchro retour en masse (WhatEpub -> Calibre) ----------
+
+_BULK_SYNC_PAGE_SIZE = 200
+
+
+def fetch_resolved_page(server_url, api_key, after_id, limit=_BULK_SYNC_PAGE_SIZE, timeout=30):
+    """GET /sync/resolved — une page de livres résolus (calibre_book_id +
+    work_info complet), pensé pour une bibliothèque de dizaines de
+    milliers de livres : un seul appel par page plutôt qu'un /books/{id}
+    par livre (voir run_poll_results, qui ne scale pas à cette taille)."""
+    req = urllib.request.Request(
+        f"{server_url.rstrip('/')}/sync/resolved?after_id={after_id}&limit={limit}",
+        headers={"X-API-Key": api_key},
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read())
+
+
+def run_bulk_metadata_sync(db_api, log=print, resume=True, progress=None):
+    """
+    Applique en masse, sur TOUTE la bibliothèque, les métadonnées déjà
+    résolues côté WhatEpub — réutilise apply_work_metadata() livre par
+    livre (API Calibre officielle, jamais de SQLite brut : aucun des
+    pièges triggers/normalisation Unicode rencontrés lors du script de
+    resynchro ponctuel de 2026-09-02 ne s'applique ici, ils venaient
+    justement du contournement de l'appli Calibre, pas de cette voie).
+
+    resume=True (défaut) : ne relit que les livres résolus depuis le
+    dernier appel (curseur bulk_sync_state.last_after_id) — un run
+    répété ne fait donc que rattraper les nouvelles résolutions.
+    resume=False : repart de zéro, réapplique TOUT le catalogue résolu
+    (utile après une grosse session de corrections côté admin WhatEpub
+    sur des livres déjà synchronisés une première fois).
+
+    progress(checked, applied) : callback optionnel appelé après chaque
+    page, pour un retour utilisateur sur une synchro qui peut prendre
+    longtemps (dizaines de milliers de livres) sans bloquer le thread UI
+    (voir SyncThread côté ui.py — cette fonction doit toujours être
+    appelée depuis un thread séparé, jamais le thread UI)."""
+    api_key = prefs["api_key"]
+    if not api_key:
+        log("[whatepub] Aucune clé API configurée — synchro retour annulée.")
+        return {"checked": 0, "applied": 0, "skipped_missing": 0, "failed": 0}
+
+    # Ensemble des ids valides dans CETTE bibliothèque, chargé une seule
+    # fois (comme get_books_to_push) plutôt qu'un appel par livre —
+    # db_api.all_book_ids() est la méthode déjà utilisée ailleurs dans ce
+    # fichier, préférée à une méthode has_id() non vérifiée contre l'API
+    # Calibre réelle.
+    valid_ids = set(db_api.all_book_ids())
+
+    state_conn = get_state_conn()
+    if resume:
+        row = state_conn.execute(
+            "SELECT value FROM bulk_sync_state WHERE key = 'last_after_id'"
+        ).fetchone()
+        after_id = int(row["value"]) if row else 0
+    else:
+        after_id = 0
+
+    checked = applied = skipped_missing = failed = 0
+
+    while True:
+        try:
+            page = fetch_resolved_page(SERVER_URL, api_key, after_id)
+        except Exception as e:
+            log(f"[whatepub] Échec récupération page (after_id={after_id}) : {type(e).__name__}: {e}")
+            break
+
+        books = page.get("books", [])
+        if not books:
+            break
+
+        for entry in books:
+            checked += 1
+            try:
+                book_id = int(entry["calibre_book_id"])
+            except (TypeError, ValueError):
+                # calibre_book_id non numérique — livre poussé par une
+                # autre source que cette bibliothèque Calibre (ex. un
+                # test manuel, voir scripts/manual_ingest_test.py côté
+                # WhatEpub) : rien à appliquer ici, jamais une erreur.
+                skipped_missing += 1
+                continue
+
+            if book_id not in valid_ids:
+                # Le livre a existé (calibre_book_id valide côté
+                # serveur) mais n'est plus dans CETTE bibliothèque
+                # (supprimé localement depuis, ou id réutilisé par une
+                # autre install Calibre) — jamais une erreur bloquante.
+                skipped_missing += 1
+                continue
+
+            try:
+                apply_work_metadata(db_api, book_id, entry["work"], log=log)
+                applied += 1
+            except Exception as e:
+                failed += 1
+                log(f"[whatepub] Échec application métadonnées (book_id={book_id}) : {type(e).__name__}: {e}")
+
+        after_id = page.get("next_after_id")
+
+        state_conn.execute(
+            "INSERT INTO bulk_sync_state (key, value) VALUES ('last_after_id', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (str(after_id if after_id is not None else 0),),
+        )
+        state_conn.commit()
+
+        if progress:
+            progress(checked, applied)
+
+        if after_id is None:
+            break
+
+    state_conn.close()
+    log(f"[whatepub] Synchro retour terminée : {applied} appliqué(s), "
+        f"{skipped_missing} ignoré(s) (livre absent), {failed} échec(s), sur {checked} vérifié(s).")
+    return {"checked": checked, "applied": applied, "skipped_missing": skipped_missing, "failed": failed}

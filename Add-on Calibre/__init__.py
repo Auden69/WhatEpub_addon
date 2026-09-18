@@ -13,10 +13,12 @@ load_translations()
 
 class WhatEpubPlugin(InterfaceActionBase):
     name = "WhatEpub"
-    description = _("Pousse les métadonnées Calibre vers le service bibliographique partagé (WhatEpub).")
+    description = _("Synchronise les métadonnées avec le service bibliographique partagé (WhatEpub) — "
+                     "pousse les livres Calibre vers WhatEpub, et applique en retour les métadonnées "
+                     "résolues côté serveur, livre par livre ou en masse.")
     supported_platforms = ["windows", "osx", "linux"]
     author = "Local"
-    version = (0, 6, 2)
+    version = (0, 7, 0)
     minimum_calibre_version = (5, 0, 0)
 
     # Chemin vers la vraie classe InterfaceAction (chargée à la demande,

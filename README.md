@@ -49,6 +49,28 @@ Le plugin tourne uniquement quand Calibre est ouvert (pas de daemon séparé) :
 En cas d'échec répété du serveur, l'intervalle d'envoi s'espace
 automatiquement (backoff) plutôt que de marteler un serveur down.
 
+## Synchro retour (WhatEpub → Calibre)
+
+Une fois un livre résolu côté serveur, ses métadonnées peuvent être
+réappliquées sur ta bibliothèque Calibre — toujours via l'API Calibre
+officielle (`set_metadata`), jamais un accès direct à `metadata.db`.
+**Toujours une action explicite, jamais automatique** : la résolution seule
+ne modifie rien localement.
+
+- **Vérifier le livre sélectionné** : interroge le serveur par signature
+  epub, affiche ce qu'il a trouvé, et propose un bouton "Mettre à jour mes
+  métadonnées" pour l'appliquer à CE livre (titre, auteur, série, langue,
+  année, résumé, identifiants, couverture — écrase les valeurs locales).
+- **Synchroniser toute la bibliothèque** : applique en une fois les
+  métadonnées de tous les livres déjà résolus — ne relit que les
+  résolutions survenues depuis le dernier appel (reprise automatique).
+  Pensé pour de grosses bibliothèques (dizaines de milliers de livres),
+  tourne sur un thread séparé pour ne jamais geler l'interface.
+- **Resynchroniser tout depuis le début** : comme ci-dessus mais réapplique
+  tout le catalogue résolu, y compris ce qui a déjà été synchronisé — utile
+  après des corrections faites côté admin WhatEpub sur des livres déjà
+  synchronisés une première fois.
+
 ## Signature epub
 
 La signature est calculée localement, côté addon, à partir du texte complet
