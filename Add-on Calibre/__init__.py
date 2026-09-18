@@ -18,7 +18,7 @@ class WhatEpubPlugin(InterfaceActionBase):
                      "résolues côté serveur, livre par livre ou en masse.")
     supported_platforms = ["windows", "osx", "linux"]
     author = "Local"
-    version = (0, 7, 1)
+    version = (0, 7, 2)
     minimum_calibre_version = (5, 0, 0)
 
     # Chemin vers la vraie classe InterfaceAction (chargée à la demande,

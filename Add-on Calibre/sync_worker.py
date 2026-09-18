@@ -184,14 +184,20 @@ def get_epub_path(db_api, book_id, log=print):
 
 # ---------- Diff : quels livres pousser ----------
 
-def get_books_to_push(db_api, state_conn):
+def get_books_to_push(db_api, state_conn, limit=None):
     """
     Compare le contenu actuel de chaque livre Calibre à son état
     connu (content_hash) — retourne uniquement les livres nouveaux ou
     modifiés depuis la dernière synchro.
-    """
+
+    limit : plafond de résultats (None/0 = illimité). Parcourt les
+    book_id triés pour que chaque cycle reprenne là où le précédent
+    s'est arrêté (les livres déjà poussés sortent du diff dès que leur
+    état est enregistré) plutôt que de rééchantillonner au hasard —
+    décision actée le 2026-09-18 pour étaler un premier scan sur une
+    bibliothèque jamais synchronisée au lieu de tout pousser d'un coup."""
     to_push = []
-    for book_id in db_api.all_book_ids():
+    for book_id in sorted(db_api.all_book_ids()):
         fields = extract_book_fields(db_api, book_id)
         current_hash = compute_content_hash(fields)
 
@@ -202,6 +208,8 @@ def get_books_to_push(db_api, state_conn):
 
         if row is None or row["content_hash"] != current_hash:
             to_push.append((book_id, fields, current_hash))
+            if limit and len(to_push) >= limit:
+                break
 
     return to_push
 
@@ -531,6 +539,7 @@ def run_scan_and_push(db_api, log=print):
     """
     api_key = prefs["api_key"]
     batch_size = prefs["batch_size"]
+    push_limit = prefs["scan_push_limit"]
 
     if not api_key:
         log("[whatepub] Aucune clé API configurée — synchro annulée.")
@@ -538,7 +547,9 @@ def run_scan_and_push(db_api, log=print):
 
     state_conn = get_state_conn()
 
-    to_push = get_books_to_push(db_api, state_conn)
+    to_push = get_books_to_push(db_api, state_conn, limit=push_limit or None)
+    if push_limit and len(to_push) == push_limit:
+        log(f"[whatepub] Plafond de {push_limit} livre(s)/cycle atteint — le reste sera poussé aux prochains cycles.")
     if not to_push:
         log("[whatepub] Rien à synchroniser.")
         return {"pushed": 0, "failed": 0, "skipped": False}

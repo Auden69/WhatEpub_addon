@@ -31,6 +31,7 @@ Les autres réglages disponibles :
 | Scan/push (minutes) | 20 | Fréquence d'envoi des livres nouveaux/modifiés |
 | Poll résultats (minutes) | 3 | Fréquence de relecture du statut des livres déjà envoyés |
 | Taille de batch | 50 | Nombre de livres par requête d'envoi |
+| Plafond livres/cycle de scan | 200 (0 = illimité) | Limite combien de livres nouveaux/modifiés sont poussés par cycle — évite qu'un premier scan sur une grosse bibliothèque jamais synchronisée pousse tout d'un coup. À 200/cycle et 20 min entre cycles, ~60 000 livres jamais synchronisés s'écoulent en un peu plus de 4 jours. Chaque cycle reprend là où le précédent s'est arrêté. |
 | Synchro retour auto (minutes) | 0 (désactivé) | Applique automatiquement, **sans confirmation**, les métadonnées WhatEpub sur cette bibliothèque à l'intervalle choisi — voir "Synchro retour" ci-dessous avant d'activer |
 
 L'URL du serveur n'est pas configurable — le plugin ne parle qu'à l'instance
