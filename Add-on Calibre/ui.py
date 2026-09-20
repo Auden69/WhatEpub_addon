@@ -121,17 +121,27 @@ class WhatEpubAction(InterfaceAction):
     # ---------- Démarrage des timers, aux intervalles configurés ----------
 
     def _start_timers(self):
-        scan_ms = prefs["scan_interval_minutes"] * 60 * 1000
+        # push_enabled : case à cocher dédiée (voir config.py) — l'envoi
+        # automatique des epubs ne démarre que si elle est cochée (cochée
+        # par défaut, c'est la fonction de base du plugin). Décochée,
+        # aucun scan/push automatique, seuls les boutons manuels
+        # ("Synchroniser maintenant", "Envoyer le livre sélectionné")
+        # restent disponibles.
+        self._scan_timer.stop()
+        if prefs["push_enabled"]:
+            scan_ms = prefs["scan_interval_minutes"] * 60 * 1000
+            self._scan_timer.start(scan_ms)
+
         poll_ms = prefs["poll_interval_minutes"] * 60 * 1000
-        self._scan_timer.start(scan_ms)
         self._poll_timer.start(poll_ms)
 
-        # 0 = désactivé (défaut) — jamais démarré sans que l'utilisateur
-        # l'ait explicitement activé dans les Paramètres (voir config.py).
-        bulk_sync_minutes = prefs["bulk_sync_interval_minutes"]
+        # bulk_sync_enabled : case à cocher dédiée, décochée par défaut —
+        # jamais démarré sans que l'utilisateur l'ait explicitement
+        # activée dans les Paramètres (voir config.py).
         self._bulk_sync_timer.stop()
-        if bulk_sync_minutes > 0:
-            self._bulk_sync_timer.start(bulk_sync_minutes * 60 * 1000)
+        if prefs["bulk_sync_enabled"]:
+            bulk_sync_ms = prefs["bulk_sync_interval_minutes"] * 60 * 1000
+            self._bulk_sync_timer.start(bulk_sync_ms)
 
     def _restart_scan_timer(self, minutes):
         self._scan_timer.setInterval(minutes * 60 * 1000)
