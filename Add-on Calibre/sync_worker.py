@@ -40,7 +40,13 @@ def get_state_db_path():
 def get_state_conn():
     path = get_state_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path))
+    # timeout=30 (defaut sqlite3 : 5s) -- poll_interval_minutes peut tourner
+    # sur un tres gros arriere (dizaines de milliers de livres 'accepted')
+    # et ne commit qu'a la fin de son cycle (voir run_poll_results) : une
+    # ecriture concurrente (ex. bulk sync) doit pouvoir patienter plus de
+    # 5s avant d'echouer avec "database is locked" (constate en prod
+    # 2026-09-26, sur un arriere de ~28000 livres).
+    conn = sqlite3.connect(str(path), timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("""
         CREATE TABLE IF NOT EXISTS addon_sync_state (
@@ -627,9 +633,23 @@ def run_poll_results(log=print):
         return {"checked": 0, "resolved": 0}
 
     resolved = 0
-    for row in pending_rows:
+    for i, row in enumerate(pending_rows):
         try:
             book = get_book_status(SERVER_URL, api_key, row["server_book_id"])
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                # Livre supprimé côté serveur (ex. job effacé depuis
+                # /jobs/failed) -- jamais réapparaître, sinon poll le
+                # réinterroge indéfiniment à chaque cycle (constaté en
+                # prod 2026-09-26, des centaines d'entrées orphelines).
+                state_conn.execute(
+                    "UPDATE addon_sync_state SET last_known_status = 'deleted_server_side' WHERE calibre_book_id = ?",
+                    (row["calibre_book_id"],),
+                )
+                log(f"[whatepub] Livre {row['calibre_book_id']} supprimé côté serveur — retiré du poll.")
+            else:
+                log(f"[whatepub] Échec poll livre {row['calibre_book_id']} : {e}")
+            continue
         except Exception as e:
             log(f"[whatepub] Échec poll livre {row['calibre_book_id']} : {e}")
             continue
@@ -647,6 +667,16 @@ def run_poll_results(log=print):
             )
             log(f"[whatepub] Suggestion en attente pour le livre {row['calibre_book_id']} "
                 f"(confirmation manuelle nécessaire — UI à venir)")
+
+        # Commit toutes les 50 lignes plutôt qu'une seule fois à la fin :
+        # avec un gros arriéré (dizaines de milliers de livres 'accepted'),
+        # un appel réseau par livre peut faire durer ce cycle plusieurs
+        # minutes -- ne pas garder l'écriture ouverte tout ce temps, sinon
+        # ça bloque toute autre synchro (ex. bulk sync) qui tenterait
+        # d'écrire dans le même fichier au même moment (constaté en prod
+        # 2026-09-26 : "database is locked" sur la synchro retour).
+        if i % 50 == 0:
+            state_conn.commit()
 
     state_conn.commit()
     state_conn.close()
